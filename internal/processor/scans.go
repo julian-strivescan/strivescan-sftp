@@ -258,15 +258,16 @@ func (sp *StudentScanProcessor) FetchData(db *sql.DB, config Config) (interface{
 	return results, nil
 }
 
-// TransformData converts student scan data to CSV format.
-func (sp *StudentScanProcessor) TransformData(data interface{}) ([][]string, error) {
-	fmt.Println("Transforming student scan data...")
+// TransformData groups student scan data by TeamID and prepares it for CSV.
+// Returns a map where key is TeamID and value is [][]string (header + rows).
+func (sp *StudentScanProcessor) TransformData(data interface{}) (map[int64][][]string, error) {
+	fmt.Println("Transforming and grouping student scan data by TeamID...")
 	scans, ok := data.([]models.StudentScanData)
 	if !ok {
 		return nil, fmt.Errorf("invalid data type for student scan transformation, expected []models.StudentScanData")
 	}
 
-	// Define CSV header based on the updated query fields
+	// Define CSV header (same for all teams)
 	header := []string{
 		"team_id", "team_name", "fair_id", "fair_name", "fair_date",
 		"student_id", "first_name", "last_name", "email", "phone", "phone_number",
@@ -284,7 +285,9 @@ func (sp *StudentScanProcessor) TransformData(data interface{}) ([][]string, err
 		"parent_first_name", "parent_last_name", "parent_phone", "parent_phone_country_code", "parent_email", "parent_relationship",
 		"notes", "rating", "follow_up",
 	}
-	csvData := [][]string{header}
+
+	// Map to hold data grouped by team ID
+	groupedData := make(map[int64][][]string)
 
 	// Helper function to safely get string from nullable types
 	nullStr := func(ns sql.NullString) string {
@@ -312,7 +315,7 @@ func (sp *StudentScanProcessor) TransformData(data interface{}) ([][]string, err
 		return ""
 	}
 
-	// Convert scans to string slices, including new fields
+	// Convert scans to string slices and group by TeamID
 	for _, scan := range scans {
 		row := []string{
 			strconv.FormatInt(scan.TeamID, 10),
@@ -393,56 +396,84 @@ func (sp *StudentScanProcessor) TransformData(data interface{}) ([][]string, err
 			nullInt(scan.Rating),
 			nullBool(scan.FollowUp),
 		}
-		csvData = append(csvData, row)
+
+		// Get the data slice for the current team, initializing if needed
+		teamData, exists := groupedData[scan.TeamID]
+		if !exists {
+			// Initialize with the header row
+			teamData = [][]string{header}
+		}
+		// Append the current row
+		teamData = append(teamData, row)
+		groupedData[scan.TeamID] = teamData
 	}
 
-	return csvData, nil
+	fmt.Printf("Data grouped into %d teams.\n", len(groupedData))
+	return groupedData, nil
 }
 
-// WriteCSV saves the student scan data to a CSV file in the output directory.
-func (sp *StudentScanProcessor) WriteCSV(data [][]string, config Config) (string, error) {
-	fmt.Println("Writing student scan data to CSV...")
-	if len(data) <= 1 { // Only header present (or just header)
-		fmt.Println("No student scan data to write.")
-		return "", nil // Indicate no file was written, not necessarily an error
+// WriteCSV saves the grouped student scan data to team-specific CSV files.
+// It accepts a map where the key is TeamID and the value is the CSV data (header + rows).
+// Returns a slice of file paths created.
+func (sp *StudentScanProcessor) WriteCSV(groupedData map[int64][][]string, config Config) ([]string, error) {
+	fmt.Println("Writing student scan data to team-specific CSV files...")
+	if len(groupedData) == 0 {
+		fmt.Println("No data groups to write.")
+		return []string{}, nil // No files written, not an error
 	}
 
-	// Create a unique filename specific to student scans
+	createdFiles := []string{}
+	baseOutputDir := "output" // Base directory for all output
 	timestamp := time.Now().Format("20060102_150405")
-	filename := fmt.Sprintf("scans_students_%s.csv", timestamp)
-	if config.TeamID != 0 {
-		filename = fmt.Sprintf("scans_students_team%d_%s.csv", config.TeamID, timestamp)
+
+	for teamID, teamData := range groupedData {
+		if len(teamData) <= 1 { // Skip teams with only a header row
+			fmt.Printf("Skipping Team ID %d: No data rows.\n", teamID)
+			continue
+		}
+
+		// Create team-specific directory path
+		teamDir := filepath.Join(baseOutputDir, strconv.FormatInt(teamID, 10))
+		filename := fmt.Sprintf("scans_students_%s.csv", timestamp)
+		fp := filepath.Join(teamDir, filename)
+
+		// Create the team-specific output directory if it doesn't exist
+		if err := os.MkdirAll(teamDir, 0755); err != nil {
+			// Return potentially partial list of created files and the error
+			return createdFiles, fmt.Errorf("failed to create output directory '%s' for team %d: %w", teamDir, teamID, err)
+		}
+
+		// Create and open the file
+		file, err := os.Create(fp)
+		if err != nil {
+			return createdFiles, fmt.Errorf("failed to create CSV file '%s' for team %d: %w", fp, teamID, err)
+		}
+
+		func() { // Use a closure to ensure file.Close() runs before loop continues
+			defer file.Close()
+
+			// Create CSV writer
+			writer := csv.NewWriter(file)
+
+			// Write all data for this team
+			err = writer.WriteAll(teamData)
+			if err != nil {
+				// Capture error to handle outside closure
+				return // Error will be handled below
+			}
+
+			// Flush ensures all buffered data is written
+			writer.Flush()
+			err = writer.Error() // Check for flush errors
+		}()
+
+		if err != nil { // Check for errors from WriteAll or Flush
+			return createdFiles, fmt.Errorf("failed to write/flush CSV for team %d to '%s': %w", teamID, fp, err)
+		}
+
+		fmt.Printf("Successfully wrote %d data rows for Team %d to: %s\n", len(teamData)-1, teamID, fp)
+		createdFiles = append(createdFiles, fp)
 	}
-	fp := filepath.Join("output", filename)
 
-	// Create the output directory if it doesn't exist
-	outDir := filepath.Dir(fp)
-	if err := os.MkdirAll(outDir, 0755); err != nil {
-		return "", fmt.Errorf("failed to create output directory '%s': %w", outDir, err)
-	}
-
-	// Create and open the file
-	file, err := os.Create(fp)
-	if err != nil {
-		return "", fmt.Errorf("failed to create CSV file '%s': %w", fp, err)
-	}
-	defer file.Close()
-
-	// Create CSV writer
-	writer := csv.NewWriter(file)
-
-	// Write all data (header and rows) to the CSV file
-	err = writer.WriteAll(data)
-	if err != nil {
-		return "", fmt.Errorf("failed to write data to CSV file '%s': %w", fp, err)
-	}
-
-	// Flush ensures all buffered data is written to the file
-	writer.Flush()
-	if err := writer.Error(); err != nil {
-		return "", fmt.Errorf("error flushing CSV writer for '%s': %w", fp, err)
-	}
-
-	fmt.Printf("Successfully wrote %d data rows to: %s\n", len(data)-1, fp)
-	return fp, nil // Return the path to the created file
+	return createdFiles, nil
 }

@@ -69,30 +69,33 @@ func main() {
 
 		// --- Process Data ---
 		// Fetch data
-		data, err := processor.FetchData(db, config) // Pass the initialized db
+		rawData, err := processor.FetchData(db, config)
 		if err != nil {
 			color.Red("Error fetching data: %v", err)
 			os.Exit(1)
 		}
 
-		// Transform data
-		csvData, err := processor.TransformData(data)
+		// Transform data into grouped map
+		groupedCsvData, err := processor.TransformData(rawData)
 		if err != nil {
 			color.Red("Error transforming data: %v", err)
 			os.Exit(1)
 		}
 
-		// Write CSV
-		filePath, err := processor.WriteCSV(csvData, config)
+		// Write CSV files per team
+		createdFilePaths, err := processor.WriteCSV(groupedCsvData, config)
 		if err != nil {
-			color.Red("Error writing CSV: %v", err)
+			color.Red("Error writing CSV files: %v", err)
 			os.Exit(1)
 		}
 
-		if filePath != "" {
-			color.Green("CSV file successfully generated: %s", filePath)
+		if len(createdFilePaths) > 0 {
+			color.Green("CSV files successfully generated:")
+			for _, fp := range createdFilePaths {
+				color.Green("- %s", fp)
+			}
 		} else {
-			color.Yellow("No data found for the specified criteria, CSV not generated.")
+			color.Yellow("No data found for the specified criteria, no CSV files generated.")
 		}
 
 	} else if *dataType == "connections" {
