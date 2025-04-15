@@ -1,7 +1,9 @@
 package processor
 
 import (
+	"context"
 	"database/sql"
+	"encoding/csv"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -125,12 +127,15 @@ GROUP BY
 ORDER BY t.id;`
 
 // FetchData retrieves student scan data (type 1) from the database.
-// TODO: Implement actual database query execution and scanning.
 func (sp *StudentScanProcessor) FetchData(db *sql.DB, config Config) (interface{}, error) {
-	fmt.Println("Fetching student scan data (type 1)...") // Updated log message
+	fmt.Println("Fetching student scan data (type 1)...")
+
+	if db == nil {
+		return nil, fmt.Errorf("database connection is nil")
+	}
 
 	var query strings.Builder
-	args := []interface{}{config.Days}
+	args := []interface{}{config.Days} // Start with the days argument for INTERVAL
 
 	query.WriteString(studentScanQueryBase)
 
@@ -142,15 +147,114 @@ func (sp *StudentScanProcessor) FetchData(db *sql.DB, config Config) (interface{
 	query.WriteString(studentScanQueryGroupBy)
 
 	finalQuery := query.String()
-	fmt.Printf("Query:\n%s\nArgs: %v\n", finalQuery, args)
+	fmt.Printf("Executing Query:\n%s\nArgs: %v\n", finalQuery, args)
 
-	// --- Placeholder: Simulate DB Fetch ---
-	fmt.Println("--- Simulating Database Fetch ---")
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second) // Example timeout
+	defer cancel()
+
+	rows, err := db.QueryContext(ctx, finalQuery, args...)
+	if err != nil {
+		return nil, fmt.Errorf("database query failed: %w", err)
+	}
+	defer rows.Close() // Ensure rows are closed
+
 	results := []models.StudentScanData{}
-	// ... placeholder data generation ...
-	fmt.Printf("--- Found %d simulated records ---\n", len(results))
-	// --- End Placeholder ---
+	for rows.Next() {
+		var scanData models.StudentScanData
+		// Ensure the order matches the SELECT statement *exactly*
+		err := rows.Scan(
+			&scanData.TeamID,
+			&scanData.TeamName,
+			&scanData.FairID,
+			&scanData.FairName,
+			&scanData.FairDate,
+			&scanData.StudentID,
+			&scanData.FirstName,
+			&scanData.LastName,
+			&scanData.Email,
+			&scanData.Phone,
+			&scanData.PhoneNumber,
+			&scanData.AddressLine1,
+			&scanData.AddressLine2,
+			&scanData.AddressCity,
+			&scanData.AddressState,
+			&scanData.AddressZipcode,
+			&scanData.AddressCountryCode,
+			&scanData.HighSchool,
+			&scanData.GraduationYear,
+			&scanData.GPA,
+			&scanData.AreaOfInterest1,
+			&scanData.AreaOfInterest2,
+			&scanData.AreaOfInterest3,
+			&scanData.Birthdate,
+			&scanData.SatScore,
+			&scanData.ActScore,
+			&scanData.TextPermission,
+			&scanData.HighSchoolCity,
+			&scanData.HighSchoolRegion,
+			&scanData.CollegeStartSemester,
+			&scanData.GPAMax,
+			&scanData.GradType,
+			&scanData.CEEB,
+			&scanData.HasHispanicLatinoOrigin,
+			&scanData.CurrentYearClass,
+			&scanData.HighSchoolCountry,
+			&scanData.CountryOfCitizenship1,
+			&scanData.CountryOfCitizenship2,
+			&scanData.CountryOfCitizenship3,
+			&scanData.Gender,
+			&scanData.GuidanceCounselorFirstName,
+			&scanData.GuidanceCounselorLastName,
+			&scanData.GuidanceCounselorEmail,
+			&scanData.CountryOfInterest1,
+			&scanData.CountryOfInterest2,
+			&scanData.CountryOfInterest3,
+			&scanData.AuthorizeCIS,
+			&scanData.TOEFLScore,
+			&scanData.IELTSScore,
+			&scanData.SSATScore,
+			&scanData.ProfessionalType,
+			&scanData.PreferredName,
+			&scanData.Pronouns,
+			&scanData.JobTitle,
+			&scanData.WorkPhone,
+			&scanData.WorkPhoneExt,
+			&scanData.WorkPhoneCountryCode,
+			&scanData.Organization,
+			&scanData.AdditionalData1,
+			&scanData.AdditionalData2,
+			&scanData.AdditionalData3,
+			&scanData.AdditionalData4,
+			&scanData.AdditionalData5,
+			&scanData.AdditionalData6,
+			&scanData.AdditionalData7,
+			&scanData.AdditionalData8,
+			&scanData.AdditionalData9,
+			&scanData.AdditionalData10,
+			&scanData.ParentFirstName,
+			&scanData.ParentLastName,
+			&scanData.ParentPhone,
+			&scanData.ParentPhoneCountryCode,
+			&scanData.ParentEmail,
+			&scanData.ParentRelationship,
+			&scanData.Notes,
+			&scanData.Rating,
+			&scanData.FollowUp,
+		)
+		if err != nil {
+			// Consider logging this error instead of returning immediately
+			// depending on whether partial results are acceptable.
+			return nil, fmt.Errorf("failed to scan row: %w", err)
+		}
+		results = append(results, scanData)
+	}
 
+	// Check for errors during row iteration
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating rows: %w", err)
+	}
+
+	fmt.Printf("--- Fetched %d records from database ---\n", len(results))
 	return results, nil
 }
 
@@ -296,12 +400,11 @@ func (sp *StudentScanProcessor) TransformData(data interface{}) ([][]string, err
 }
 
 // WriteCSV saves the student scan data to a CSV file in the output directory.
-// TODO: Implement actual CSV writing logic (using encoding/csv).
 func (sp *StudentScanProcessor) WriteCSV(data [][]string, config Config) (string, error) {
-	fmt.Println("Writing student scan data to CSV...") // Updated log message
-	if len(data) <= 1 {                                // Only header present
+	fmt.Println("Writing student scan data to CSV...")
+	if len(data) <= 1 { // Only header present (or just header)
 		fmt.Println("No student scan data to write.")
-		return "", nil
+		return "", nil // Indicate no file was written, not necessarily an error
 	}
 
 	// Create a unique filename specific to student scans
@@ -312,21 +415,34 @@ func (sp *StudentScanProcessor) WriteCSV(data [][]string, config Config) (string
 	}
 	fp := filepath.Join("output", filename)
 
-	// Placeholder: Just print the path for now
-	fmt.Printf("CSV file would be written to: %s\n", fp)
-
 	// Create the output directory if it doesn't exist
-	if err := os.MkdirAll(filepath.Dir(fp), 0755); err != nil {
-		return "", fmt.Errorf("failed to create output directory: %w", err)
+	outDir := filepath.Dir(fp)
+	if err := os.MkdirAll(outDir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create output directory '%s': %w", outDir, err)
 	}
 
-	// Actual CSV writing would happen here using encoding/csv
-	// file, err := os.Create(fp)
-	// if err != nil { ... }
-	// defer file.Close()
-	// writer := csv.NewWriter(file)
-	// err = writer.WriteAll(data)
-	// if err != nil { ... }
+	// Create and open the file
+	file, err := os.Create(fp)
+	if err != nil {
+		return "", fmt.Errorf("failed to create CSV file '%s': %w", fp, err)
+	}
+	defer file.Close()
 
-	return fp, nil // Return placeholder path
+	// Create CSV writer
+	writer := csv.NewWriter(file)
+
+	// Write all data (header and rows) to the CSV file
+	err = writer.WriteAll(data)
+	if err != nil {
+		return "", fmt.Errorf("failed to write data to CSV file '%s': %w", fp, err)
+	}
+
+	// Flush ensures all buffered data is written to the file
+	writer.Flush()
+	if err := writer.Error(); err != nil {
+		return "", fmt.Errorf("error flushing CSV writer for '%s': %w", fp, err)
+	}
+
+	fmt.Printf("Successfully wrote %d data rows to: %s\n", len(data)-1, fp)
+	return fp, nil // Return the path to the created file
 }
