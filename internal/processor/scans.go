@@ -3,11 +3,7 @@ package processor
 import (
 	"context"
 	"database/sql"
-	"encoding/csv"
 	"fmt"
-	"os"
-	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -15,7 +11,16 @@ import (
 )
 
 // StudentScanProcessor handles processing of student scan data (type 1).
-type StudentScanProcessor struct{}
+type StudentScanProcessor struct {
+	*BaseProcessor
+}
+
+// NewStudentScanProcessor creates a new StudentScanProcessor
+func NewStudentScanProcessor() *StudentScanProcessor {
+	return &StudentScanProcessor{
+		BaseProcessor: NewBaseProcessor(1),
+	}
+}
 
 const studentScanQueryBase = `
 SELECT 
@@ -135,7 +140,7 @@ WHERE
     CONVERT_TZ(f.ends_at, f.ends_at_timezone, 'America/Chicago') >= DATE_SUB(CONVERT_TZ(NOW(), 'UTC', 'America/Chicago'), INTERVAL ? DAY)
     AND CONVERT_TZ(f.ends_at, f.ends_at_timezone, 'America/Chicago') <= CONVERT_TZ(NOW(), 'UTC', 'America/Chicago')
     AND ufs.sftp_update_id IS NULL
-    AND s.student_type_id = 1`
+    AND s.student_type_id = ?`
 
 const studentScanQueryGroupBy = `
 GROUP BY 
@@ -156,7 +161,7 @@ func (sp *StudentScanProcessor) FetchData(db *sql.DB, config Config) (interface{
 	}
 
 	var query strings.Builder
-	args := []interface{}{config.Days} // Start with the days argument for INTERVAL
+	args := []interface{}{config.Days, sp.scanTypeID} // Add scan type ID as the last argument
 
 	query.WriteString(studentScanQueryBase)
 
@@ -170,19 +175,18 @@ func (sp *StudentScanProcessor) FetchData(db *sql.DB, config Config) (interface{
 	finalQuery := query.String()
 	fmt.Printf("Executing Query:\n%s\nArgs: %v\n", finalQuery, args)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Hour) // Example timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Hour)
 	defer cancel()
 
 	rows, err := db.QueryContext(ctx, finalQuery, args...)
 	if err != nil {
 		return nil, fmt.Errorf("database query failed: %w", err)
 	}
-	defer rows.Close() // Ensure rows are closed
+	defer rows.Close()
 
 	results := []models.StudentScanData{}
 	for rows.Next() {
 		var scanData models.StudentScanData
-		// Ensure the order matches the SELECT statement *exactly*
 		err := rows.Scan(
 			&scanData.TeamID,
 			&scanData.TeamName,
@@ -279,14 +283,11 @@ func (sp *StudentScanProcessor) FetchData(db *sql.DB, config Config) (interface{
 			&scanData.FollowUp,
 		)
 		if err != nil {
-			// Consider logging this error instead of returning immediately
-			// depending on whether partial results are acceptable.
 			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
 		results = append(results, scanData)
 	}
 
-	// Check for errors during row iteration
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("error iterating rows: %w", err)
 	}
@@ -296,7 +297,6 @@ func (sp *StudentScanProcessor) FetchData(db *sql.DB, config Config) (interface{
 }
 
 // TransformData groups student scan data by TeamID and prepares it for CSV.
-// Returns a map where key is TeamID and value is [][]string (header + rows).
 func (sp *StudentScanProcessor) TransformData(data interface{}) (map[int64][][]string, error) {
 	fmt.Println("Transforming and grouping student scan data by TeamID...")
 	scans, ok := data.([]models.StudentScanData)
@@ -304,157 +304,19 @@ func (sp *StudentScanProcessor) TransformData(data interface{}) (map[int64][][]s
 		return nil, fmt.Errorf("invalid data type for student scan transformation, expected []models.StudentScanData")
 	}
 
-	// Define CSV header (same for all teams)
-	header := []string{
-		"Fair Name",
-		"Internal Event ID",
-		"First Name",
-		"Last Name",
-		"Email",
-		"Phone",
-		"Text Permission",
-		"Address 1",
-		"Address 2",
-		"Address City",
-		"Address State",
-		"Address ZIP",
-		"Birthdate",
-		"High School",
-		"High School City",
-		"High School State",
-		"CEEB Code",
-		"Graduation Year",
-		"College Start",
-		"GPA",
-		"GPA Max",
-		"SAT",
-		"ACT",
-		"Area of Interest 1",
-		"Area of Interest 2",
-		"Area of Interest 3",
-		"Ethnicity Cuban",
-		"Ethnicity Mexican",
-		"Ethnicity Puerto Rican",
-		"Ethnicity Other Hispanic, Latino, or Spanish",
-		"Ethnicity Non-Hispanic, Latino, or Spanish",
-		"Race American Indian or Alaskan Native",
-		"Race Asian",
-		"Race Black or African American",
-		"Race Native Hawaiian or Other Pacific Islander",
-		"Race White",
-		"Rating",
-		"Notes",
-		"Follow Up",
-		"Parent or Student",
-		"Scan Time",
-		"Scan Rep",
-		"Registration Language",
-		"Event Guide",
-		"Updated Time",
-	}
-
 	// Map to hold data grouped by team ID
 	groupedData := make(map[int64][][]string)
 
-	// Helper function to safely get string from nullable types
-	nullStr := func(ns sql.NullString) string {
-		if ns.Valid {
-			return ns.String
-		}
-		return ""
-	}
-	nullInt := func(ni sql.NullInt64) string {
-		if ni.Valid {
-			return strconv.FormatInt(ni.Int64, 10)
-		}
-		return ""
-	}
-	nullBool := func(nb sql.NullBool) string {
-		if nb.Valid {
-			return strconv.FormatBool(nb.Bool)
-		}
-		return ""
-	}
-	nullTime := func(nt sql.NullTime, format string) string {
-		if nt.Valid {
-			return nt.Time.Format(format)
-		}
-		return ""
-	}
-
 	// Convert scans to string slices and group by TeamID
 	for _, scan := range scans {
-		row := []string{
-			scan.FairName,
-			nullStr(scan.InternalEventID),
-			nullStr(scan.FirstName),
-			nullStr(scan.LastName),
-			nullStr(scan.Email),
-			nullStr(scan.PhoneNumber),
-			func() string {
-				if scan.TextPermission.Valid && scan.TextPermission.String == "1" {
-					return "Yes"
-				}
-				return "No"
-			}(),
-			nullStr(scan.AddressLine1),
-			nullStr(scan.AddressLine2),
-			nullStr(scan.AddressCity),
-			nullStr(scan.AddressState),
-			nullStr(scan.AddressZipcode),
-			nullStr(scan.Birthdate),
-			nullStr(scan.HighSchool),
-			nullStr(scan.HighSchoolCity),
-			nullStr(scan.HighSchoolRegion),
-			nullStr(scan.CEEB),
-			nullStr(scan.GraduationYear),
-			nullStr(scan.CollegeStartSemester),
-			nullStr(scan.GPA),
-			nullStr(scan.GPAMax),
-			nullStr(scan.SatScore),
-			nullStr(scan.ActScore),
-			nullStr(scan.AreaOfInterest1),
-			nullStr(scan.AreaOfInterest2),
-			nullStr(scan.AreaOfInterest3),
-			nullStr(scan.EthnicityCuban),
-			nullStr(scan.EthnicityMexican),
-			nullStr(scan.EthnicityPuertoRican),
-			nullStr(scan.EthnicityOtherHispanicLatinoOrSpanish),
-			nullStr(scan.EthnicityNonHispanicLatinoOrSpanish),
-			nullStr(scan.RaceAmericanIndianOrAlaskanNative),
-			nullStr(scan.RaceAsian),
-			nullStr(scan.RaceBlackOrAfricanAmerican),
-			nullStr(scan.RaceNativeHawaiianOrOtherPacificIslander),
-			nullStr(scan.RaceWhite),
-			nullInt(scan.Rating),
-			nullStr(scan.Notes),
-			nullBool(scan.FollowUp),
-			func() string {
-				if scan.ParentEncountered.Valid && scan.ParentEncountered.Bool {
-					return "Parent"
-				}
-				return "Student"
-			}(),
-			nullTime(scan.ScanTime, "2006-01-02 15:04:05"),
-			nullStr(scan.ScanRep),
-			func() string {
-				if scan.Locale.Valid {
-					return scan.Locale.String
-				}
-				return "en"
-			}(),
-			"No",
-			nullTime(scan.UpdatedTime, "2006-01-02 15:04:05"),
-		}
-
 		// Get the data slice for the current team, initializing if needed
 		teamData, exists := groupedData[scan.TeamID]
 		if !exists {
 			// Initialize with the header row
-			teamData = [][]string{header}
+			teamData = [][]string{sp.GetCSVHeader()}
 		}
 		// Append the current row
-		teamData = append(teamData, row)
+		teamData = append(teamData, sp.TransformScanToRow(scan))
 		groupedData[scan.TeamID] = teamData
 	}
 
@@ -463,64 +325,22 @@ func (sp *StudentScanProcessor) TransformData(data interface{}) (map[int64][][]s
 }
 
 // WriteCSV saves the grouped student scan data to team-specific CSV files.
-// It accepts a map where the key is TeamID and the value is the CSV data (header + rows).
-// Returns a slice of file paths created.
 func (sp *StudentScanProcessor) WriteCSV(groupedData map[int64][][]string, config Config) ([]string, error) {
 	fmt.Println("Writing student scan data to team-specific CSV files...")
 	if len(groupedData) == 0 {
 		fmt.Println("No data groups to write.")
-		return []string{}, nil // No files written, not an error
+		return []string{}, nil
 	}
 
 	createdFiles := []string{}
-	baseOutputDir := "output" // Base directory for all output
+	baseOutputDir := "output"
 	timestamp := time.Now().Format("20060102_150405")
 
 	for teamID, teamData := range groupedData {
-		if len(teamData) <= 1 { // Skip teams with only a header row
-			fmt.Printf("Skipping Team ID %d: No data rows.\n", teamID)
-			continue
-		}
-
-		// Create team-specific directory path
-		teamDir := filepath.Join(baseOutputDir, strconv.FormatInt(teamID, 10))
-		filename := fmt.Sprintf("scans_students_%s.csv", timestamp)
-		fp := filepath.Join(teamDir, filename)
-
-		// Create the team-specific output directory if it doesn't exist
-		if err := os.MkdirAll(teamDir, 0755); err != nil {
-			// Return potentially partial list of created files and the error
-			return createdFiles, fmt.Errorf("failed to create output directory '%s' for team %d: %w", teamDir, teamID, err)
-		}
-
-		// Create and open the file
-		file, err := os.Create(fp)
+		fp, err := sp.WriteCSVFile(teamID, teamData, baseOutputDir, timestamp)
 		if err != nil {
-			return createdFiles, fmt.Errorf("failed to create CSV file '%s' for team %d: %w", fp, teamID, err)
+			return createdFiles, err
 		}
-
-		func() { // Use a closure to ensure file.Close() runs before loop continues
-			defer file.Close()
-
-			// Create CSV writer
-			writer := csv.NewWriter(file)
-
-			// Write all data for this team
-			err = writer.WriteAll(teamData)
-			if err != nil {
-				// Capture error to handle outside closure
-				return // Error will be handled below
-			}
-
-			// Flush ensures all buffered data is written
-			writer.Flush()
-			err = writer.Error() // Check for flush errors
-		}()
-
-		if err != nil { // Check for errors from WriteAll or Flush
-			return createdFiles, fmt.Errorf("failed to write/flush CSV for team %d to '%s': %w", teamID, fp, err)
-		}
-
 		fmt.Printf("Successfully wrote %d data rows for Team %d to: %s\n", len(teamData)-1, teamID, fp)
 		createdFiles = append(createdFiles, fp)
 	}

@@ -29,7 +29,7 @@ func main() {
 
 	// --- Flags ---
 	dataType := flag.String("type", "scans", "Type of data to process (scans or connections)")
-	scanType := flag.String("scan-type", "student", "Type of scan to process (student, professional, or all)")
+	scanType := flag.String("scan-type", "all", "Type of scan to process (student, professional, or all)")
 	days := flag.Int("days", 3, "Number of days back to process data for")
 	teamID := flag.Int("team", 0, "Specific team ID to process (optional)") // Use 0 as a sentinel for 'not set'
 	force := flag.Bool("force", false, "Force reprocessing even if data seems up-to-date")
@@ -74,14 +74,14 @@ func main() {
 		// Process scans based on scan type
 		switch *scanType {
 		case "student":
-			processScans(&proc.StudentScanProcessor{}, config, db)
+			processScans(proc.NewStudentScanProcessor(), config, db)
 		case "professional":
-			processScans(&proc.ProfessionalScanProcessor{}, config, db)
+			processScans(proc.NewProfessionalScanProcessor(), config, db)
 		case "all":
 			fmt.Println("\nProcessing student scans...")
-			processScans(&proc.StudentScanProcessor{}, config, db)
+			processScans(proc.NewStudentScanProcessor(), config, db)
 			fmt.Println("\nProcessing professional scans...")
-			processScans(&proc.ProfessionalScanProcessor{}, config, db)
+			processScans(proc.NewProfessionalScanProcessor(), config, db)
 		default:
 			color.Red("Invalid scan type specified: %s. Use 'student', 'professional', or 'all'.", *scanType)
 			os.Exit(1)

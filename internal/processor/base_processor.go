@@ -1,28 +1,31 @@
 package processor
 
 import (
-	"context"
 	"database/sql"
+	"encoding/csv"
 	"fmt"
-	"strings"
-	"time"
+	"os"
+	"path/filepath"
+	"strconv"
 
 	"github.com/strivescan/strivescan-sftp/internal/models"
 )
 
-// ProfessionalScanProcessor handles processing of professional scan data (type 6).
-type ProfessionalScanProcessor struct {
-	*BaseProcessor
+// BaseProcessor contains shared functionality between different scan processors
+type BaseProcessor struct {
+	scanTypeID int
 }
 
-// NewProfessionalScanProcessor creates a new ProfessionalScanProcessor
-func NewProfessionalScanProcessor() *ProfessionalScanProcessor {
-	return &ProfessionalScanProcessor{
-		BaseProcessor: NewBaseProcessor(6),
+// NewBaseProcessor creates a new base processor with the specified scan type ID
+func NewBaseProcessor(scanTypeID int) *BaseProcessor {
+	return &BaseProcessor{
+		scanTypeID: scanTypeID,
 	}
 }
 
-const professionalScanQueryBase = `
+// GetScanQuery returns the base SQL query for fetching scan data
+func (bp *BaseProcessor) GetScanQuery() string {
+	return `
 SELECT 
     t.id AS team_id,
     t.name AS team_name,
@@ -141,8 +144,11 @@ WHERE
     AND CONVERT_TZ(f.ends_at, f.ends_at_timezone, 'America/Chicago') <= CONVERT_TZ(NOW(), 'UTC', 'America/Chicago')
     AND ufs.sftp_update_id IS NULL
     AND s.student_type_id = ?`
+}
 
-const professionalScanQueryGroupBy = `
+// GetScanQueryGroupBy returns the GROUP BY clause for the scan query
+func (bp *BaseProcessor) GetScanQueryGroupBy() string {
+	return `
 GROUP BY 
     t.id, t.name, f.id, f.name, f.starts_at, s.id, s.first_name, s.last_name, 
     s.email, s.phone, pn.number, a.line1, a.line2, a.municipality, a.region, a.postal_code, a.country_code,
@@ -151,199 +157,197 @@ GROUP BY
     ufs.notes, ufs.rating, ufs.follow_up, ft.guid_id, ufs.created_at, ufs.updated_at, ufs.parent_encountered,
     u.first_name, u.last_name
 ORDER BY t.id;`
+}
 
-// FetchData retrieves professional scan data (type 6) from the database.
-func (pp *ProfessionalScanProcessor) FetchData(db *sql.DB, config Config) (interface{}, error) {
-	fmt.Println("Fetching professional scan data (type 6)...")
+// GetCSVHeader returns the standard CSV header for scan data
+func (bp *BaseProcessor) GetCSVHeader() []string {
+	return []string{
+		"Fair Name",
+		"Internal Event ID",
+		"First Name",
+		"Last Name",
+		"Email",
+		"Phone",
+		"Text Permission",
+		"Address 1",
+		"Address 2",
+		"Address City",
+		"Address State",
+		"Address ZIP",
+		"Birthdate",
+		"High School",
+		"High School City",
+		"High School State",
+		"CEEB Code",
+		"Graduation Year",
+		"College Start",
+		"GPA",
+		"GPA Max",
+		"SAT",
+		"ACT",
+		"Area of Interest 1",
+		"Area of Interest 2",
+		"Area of Interest 3",
+		"Ethnicity Cuban",
+		"Ethnicity Mexican",
+		"Ethnicity Puerto Rican",
+		"Ethnicity Other Hispanic, Latino, or Spanish",
+		"Ethnicity Non-Hispanic, Latino, or Spanish",
+		"Race American Indian or Alaskan Native",
+		"Race Asian",
+		"Race Black or African American",
+		"Race Native Hawaiian or Other Pacific Islander",
+		"Race White",
+		"Rating",
+		"Notes",
+		"Follow Up",
+		"Parent or Student",
+		"Scan Time",
+		"Scan Rep",
+		"Registration Language",
+		"Event Guide",
+		"Updated Time",
+	}
+}
 
-	if db == nil {
-		return nil, fmt.Errorf("database connection is nil")
+// Helper functions for handling nullable types
+func (bp *BaseProcessor) nullStr(ns sql.NullString) string {
+	if ns.Valid {
+		return ns.String
+	}
+	return ""
+}
+
+func (bp *BaseProcessor) nullInt(ni sql.NullInt64) string {
+	if ni.Valid {
+		return strconv.FormatInt(ni.Int64, 10)
+	}
+	return ""
+}
+
+func (bp *BaseProcessor) nullBool(nb sql.NullBool) string {
+	if nb.Valid {
+		return strconv.FormatBool(nb.Bool)
+	}
+	return ""
+}
+
+func (bp *BaseProcessor) nullTime(nt sql.NullTime, format string) string {
+	if nt.Valid {
+		return nt.Time.Format(format)
+	}
+	return ""
+}
+
+// TransformScanToRow converts a scan data record to a CSV row
+func (bp *BaseProcessor) TransformScanToRow(scan models.StudentScanData) []string {
+	return []string{
+		scan.FairName,
+		bp.nullStr(scan.InternalEventID),
+		bp.nullStr(scan.FirstName),
+		bp.nullStr(scan.LastName),
+		bp.nullStr(scan.Email),
+		bp.nullStr(scan.PhoneNumber),
+		func() string {
+			if scan.TextPermission.Valid && scan.TextPermission.String == "1" {
+				return "Yes"
+			}
+			return "No"
+		}(),
+		bp.nullStr(scan.AddressLine1),
+		bp.nullStr(scan.AddressLine2),
+		bp.nullStr(scan.AddressCity),
+		bp.nullStr(scan.AddressState),
+		bp.nullStr(scan.AddressZipcode),
+		bp.nullStr(scan.Birthdate),
+		bp.nullStr(scan.HighSchool),
+		bp.nullStr(scan.HighSchoolCity),
+		bp.nullStr(scan.HighSchoolRegion),
+		bp.nullStr(scan.CEEB),
+		bp.nullStr(scan.GraduationYear),
+		bp.nullStr(scan.CollegeStartSemester),
+		bp.nullStr(scan.GPA),
+		bp.nullStr(scan.GPAMax),
+		bp.nullStr(scan.SatScore),
+		bp.nullStr(scan.ActScore),
+		bp.nullStr(scan.AreaOfInterest1),
+		bp.nullStr(scan.AreaOfInterest2),
+		bp.nullStr(scan.AreaOfInterest3),
+		bp.nullStr(scan.EthnicityCuban),
+		bp.nullStr(scan.EthnicityMexican),
+		bp.nullStr(scan.EthnicityPuertoRican),
+		bp.nullStr(scan.EthnicityOtherHispanicLatinoOrSpanish),
+		bp.nullStr(scan.EthnicityNonHispanicLatinoOrSpanish),
+		bp.nullStr(scan.RaceAmericanIndianOrAlaskanNative),
+		bp.nullStr(scan.RaceAsian),
+		bp.nullStr(scan.RaceBlackOrAfricanAmerican),
+		bp.nullStr(scan.RaceNativeHawaiianOrOtherPacificIslander),
+		bp.nullStr(scan.RaceWhite),
+		bp.nullInt(scan.Rating),
+		bp.nullStr(scan.Notes),
+		bp.nullBool(scan.FollowUp),
+		func() string {
+			if scan.ParentEncountered.Valid && scan.ParentEncountered.Bool {
+				return "Parent"
+			}
+			return "Student"
+		}(),
+		bp.nullTime(scan.ScanTime, "2006-01-02 15:04:05"),
+		bp.nullStr(scan.ScanRep),
+		func() string {
+			if scan.Locale.Valid {
+				return scan.Locale.String
+			}
+			return "en"
+		}(),
+		"No",
+		bp.nullTime(scan.UpdatedTime, "2006-01-02 15:04:05"),
+	}
+}
+
+// WriteCSVFile writes the CSV data to a file
+func (bp *BaseProcessor) WriteCSVFile(teamID int64, teamData [][]string, baseOutputDir string, timestamp string) (string, error) {
+	if len(teamData) <= 1 { // Skip teams with only a header row
+		return "", fmt.Errorf("no data rows for team %d", teamID)
 	}
 
-	var query strings.Builder
-	args := []interface{}{config.Days, pp.scanTypeID} // Add scan type ID as the last argument
+	// Create team-specific directory path
+	teamDir := filepath.Join(baseOutputDir, strconv.FormatInt(teamID, 10))
+	filename := fmt.Sprintf("scans_%s_%s.csv", bp.getScanTypeName(), timestamp)
+	fp := filepath.Join(teamDir, filename)
 
-	query.WriteString(pp.GetScanQuery())
-
-	if config.TeamID != 0 {
-		query.WriteString(" AND t.id = ?")
-		args = append(args, config.TeamID)
+	// Create the team-specific output directory if it doesn't exist
+	if err := os.MkdirAll(teamDir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create output directory '%s' for team %d: %w", teamDir, teamID, err)
 	}
 
-	query.WriteString(pp.GetScanQueryGroupBy())
-
-	finalQuery := query.String()
-	fmt.Printf("Executing Query:\n%s\nArgs: %v\n", finalQuery, args)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Hour)
-	defer cancel()
-
-	rows, err := db.QueryContext(ctx, finalQuery, args...)
+	// Create and open the file
+	file, err := os.Create(fp)
 	if err != nil {
-		return nil, fmt.Errorf("database query failed: %w", err)
+		return "", fmt.Errorf("failed to create CSV file '%s' for team %d: %w", fp, teamID, err)
 	}
-	defer rows.Close()
+	defer file.Close()
 
-	results := []models.StudentScanData{}
-	for rows.Next() {
-		var scanData models.StudentScanData
-		err := rows.Scan(
-			&scanData.TeamID,
-			&scanData.TeamName,
-			&scanData.InternalEventID,
-			&scanData.FairID,
-			&scanData.FairName,
-			&scanData.FairDate,
-			&scanData.StudentID,
-			&scanData.FirstName,
-			&scanData.LastName,
-			&scanData.Email,
-			&scanData.Phone,
-			&scanData.PhoneNumber,
-			&scanData.AddressLine1,
-			&scanData.AddressLine2,
-			&scanData.AddressCity,
-			&scanData.AddressState,
-			&scanData.AddressZipcode,
-			&scanData.AddressCountryCode,
-			&scanData.Locale,
-			&scanData.ScanTime,
-			&scanData.UpdatedTime,
-			&scanData.ParentEncountered,
-			&scanData.HighSchool,
-			&scanData.GraduationYear,
-			&scanData.GPA,
-			&scanData.AreaOfInterest1,
-			&scanData.AreaOfInterest2,
-			&scanData.AreaOfInterest3,
-			&scanData.Birthdate,
-			&scanData.SatScore,
-			&scanData.ActScore,
-			&scanData.TextPermission,
-			&scanData.HighSchoolCity,
-			&scanData.HighSchoolRegion,
-			&scanData.CollegeStartSemester,
-			&scanData.GPAMax,
-			&scanData.GradType,
-			&scanData.CEEB,
-			&scanData.HasHispanicLatinoOrigin,
-			&scanData.CurrentYearClass,
-			&scanData.HighSchoolCountry,
-			&scanData.CountryOfCitizenship1,
-			&scanData.CountryOfCitizenship2,
-			&scanData.CountryOfCitizenship3,
-			&scanData.Gender,
-			&scanData.GuidanceCounselorFirstName,
-			&scanData.GuidanceCounselorLastName,
-			&scanData.GuidanceCounselorEmail,
-			&scanData.CountryOfInterest1,
-			&scanData.CountryOfInterest2,
-			&scanData.CountryOfInterest3,
-			&scanData.AuthorizeCIS,
-			&scanData.TOEFLScore,
-			&scanData.IELTSScore,
-			&scanData.SSATScore,
-			&scanData.ProfessionalType,
-			&scanData.PreferredName,
-			&scanData.Pronouns,
-			&scanData.JobTitle,
-			&scanData.WorkPhone,
-			&scanData.WorkPhoneExt,
-			&scanData.WorkPhoneCountryCode,
-			&scanData.Organization,
-			&scanData.AdditionalData1,
-			&scanData.AdditionalData2,
-			&scanData.AdditionalData3,
-			&scanData.AdditionalData4,
-			&scanData.AdditionalData5,
-			&scanData.AdditionalData6,
-			&scanData.AdditionalData7,
-			&scanData.AdditionalData8,
-			&scanData.AdditionalData9,
-			&scanData.AdditionalData10,
-			&scanData.ParentFirstName,
-			&scanData.ParentLastName,
-			&scanData.ParentPhone,
-			&scanData.ParentPhoneCountryCode,
-			&scanData.ParentEmail,
-			&scanData.ParentRelationship,
-			&scanData.EthnicityCuban,
-			&scanData.EthnicityMexican,
-			&scanData.EthnicityPuertoRican,
-			&scanData.EthnicityOtherHispanicLatinoOrSpanish,
-			&scanData.EthnicityNonHispanicLatinoOrSpanish,
-			&scanData.RaceAmericanIndianOrAlaskanNative,
-			&scanData.RaceAsian,
-			&scanData.RaceBlackOrAfricanAmerican,
-			&scanData.RaceNativeHawaiianOrOtherPacificIslander,
-			&scanData.RaceWhite,
-			&scanData.ScanRep,
-			&scanData.Notes,
-			&scanData.Rating,
-			&scanData.FollowUp,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan row: %w", err)
-		}
-		results = append(results, scanData)
+	// Create CSV writer
+	writer := csv.NewWriter(file)
+	defer writer.Flush()
+
+	// Write all data for this team
+	if err := writer.WriteAll(teamData); err != nil {
+		return "", fmt.Errorf("failed to write CSV data for team %d to '%s': %w", teamID, fp, err)
 	}
 
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating rows: %w", err)
-	}
-
-	fmt.Printf("--- Fetched %d records from database ---\n", len(results))
-	return results, nil
+	return fp, nil
 }
 
-// TransformData groups professional scan data by TeamID and prepares it for CSV.
-func (pp *ProfessionalScanProcessor) TransformData(data interface{}) (map[int64][][]string, error) {
-	fmt.Println("Transforming and grouping professional scan data by TeamID...")
-	scans, ok := data.([]models.StudentScanData)
-	if !ok {
-		return nil, fmt.Errorf("invalid data type for professional scan transformation, expected []models.StudentScanData")
+// getScanTypeName returns a string representation of the scan type
+func (bp *BaseProcessor) getScanTypeName() string {
+	switch bp.scanTypeID {
+	case 1:
+		return "students"
+	case 6:
+		return "professionals"
+	default:
+		return "unknown"
 	}
-
-	// Map to hold data grouped by team ID
-	groupedData := make(map[int64][][]string)
-
-	// Convert scans to string slices and group by TeamID
-	for _, scan := range scans {
-		// Get the data slice for the current team, initializing if needed
-		teamData, exists := groupedData[scan.TeamID]
-		if !exists {
-			// Initialize with the header row
-			teamData = [][]string{pp.GetCSVHeader()}
-		}
-		// Append the current row
-		teamData = append(teamData, pp.TransformScanToRow(scan))
-		groupedData[scan.TeamID] = teamData
-	}
-
-	fmt.Printf("Data grouped into %d teams.\n", len(groupedData))
-	return groupedData, nil
-}
-
-// WriteCSV saves the grouped professional scan data to team-specific CSV files.
-func (pp *ProfessionalScanProcessor) WriteCSV(groupedData map[int64][][]string, config Config) ([]string, error) {
-	fmt.Println("Writing professional scan data to team-specific CSV files...")
-	if len(groupedData) == 0 {
-		fmt.Println("No data groups to write.")
-		return []string{}, nil
-	}
-
-	createdFiles := []string{}
-	baseOutputDir := "output"
-	timestamp := time.Now().Format("20060102_150405")
-
-	for teamID, teamData := range groupedData {
-		fp, err := pp.WriteCSVFile(teamID, teamData, baseOutputDir, timestamp)
-		if err != nil {
-			return createdFiles, err
-		}
-		fmt.Printf("Successfully wrote %d data rows for Team %d to: %s\n", len(teamData)-1, teamID, fp)
-		createdFiles = append(createdFiles, fp)
-	}
-
-	return createdFiles, nil
 }
