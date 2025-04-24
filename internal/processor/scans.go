@@ -170,7 +170,7 @@ func (sp *StudentScanProcessor) FetchData(db *sql.DB, config Config) (interface{
 	finalQuery := query.String()
 	fmt.Printf("Executing Query:\n%s\nArgs: %v\n", finalQuery, args)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second) // Example timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Hour) // Example timeout
 	defer cancel()
 
 	rows, err := db.QueryContext(ctx, finalQuery, args...)
