@@ -109,20 +109,30 @@ SELECT
     MAX(CASE WHEN sa.name = 'parent_phone_country_code' THEN sav.value ELSE NULL END) AS parent_phone_country_code,
     MAX(CASE WHEN sa.name = 'parent_email' THEN sav.value ELSE NULL END) AS parent_email,
     MAX(CASE WHEN sa.name = 'parent_relationship' THEN sav.value ELSE NULL END) AS parent_relationship,
-	MAX(CASE WHEN es.ethnicity_id = '1' THEN 'Y' ELSE 'N' END) AS ethnicity_cuban,
-	MAX(CASE WHEN es.ethnicity_id = '4' THEN 'Y' ELSE 'N' END) AS ethnicity_mexican,
-	MAX(CASE WHEN es.ethnicity_id = '3' THEN 'Y' ELSE 'N' END) AS ethnicity_puerto_rican,
-	MAX(CASE WHEN es.ethnicity_id = '2' THEN 'Y' ELSE 'N' END) AS ethnicity_other_hispanic_latino_or_spanish,
-	MAX(CASE WHEN es.ethnicity_id = '5' THEN 'Y' ELSE 'N' END) AS ethnicity_non_hispanic_latino_or_spanish,
-	MAX(CASE WHEN rs.race_id = '4' THEN 'Y' ELSE 'N' END) AS race_american_indian_or_alaskan_native,
-	MAX(CASE WHEN rs.race_id = '3' THEN 'Y' ELSE 'N' END) AS race_asian,
-	MAX(CASE WHEN rs.race_id = '1' THEN 'Y' ELSE 'N' END) AS race_black_or_african_american,
-	MAX(CASE WHEN rs.race_id = '5' THEN 'Y' ELSE 'N' END) AS race_native_hawaiian_or_other_pacific_islander,
-	MAX(CASE WHEN rs.race_id = '2' THEN 'Y' ELSE 'N' END) AS race_white,
+	MAX(CASE WHEN es.ethnicity_id = '1' THEN 'Y' ELSE '' END) AS ethnicity_cuban,
+	MAX(CASE WHEN es.ethnicity_id = '4' THEN 'Y' ELSE '' END) AS ethnicity_mexican,
+	MAX(CASE WHEN es.ethnicity_id = '3' THEN 'Y' ELSE '' END) AS ethnicity_puerto_rican,
+	MAX(CASE WHEN es.ethnicity_id = '2' THEN 'Y' ELSE '' END) AS ethnicity_other_hispanic_latino_or_spanish,
+	MAX(CASE WHEN es.ethnicity_id = '5' THEN 'Y' ELSE '' END) AS ethnicity_non_hispanic_latino_or_spanish,
+	MAX(CASE WHEN rs.race_id = '4' THEN 'Y' ELSE '' END) AS race_american_indian_or_alaskan_native,
+	MAX(CASE WHEN rs.race_id = '3' THEN 'Y' ELSE '' END) AS race_asian,
+	MAX(CASE WHEN rs.race_id = '1' THEN 'Y' ELSE '' END) AS race_black_or_african_american,
+	MAX(CASE WHEN rs.race_id = '5' THEN 'Y' ELSE '' END) AS race_native_hawaiian_or_other_pacific_islander,
+	MAX(CASE WHEN rs.race_id = '2' THEN 'Y' ELSE '' END) AS race_white,
     CONCAT(u.first_name, ' ', u.last_name) AS scan_rep,
     ufs.notes,
     ufs.rating,
-    ufs.follow_up
+    ufs.follow_up,
+	(CASE WHEN EXISTS (
+        SELECT 1
+        FROM fair_participant_student
+        JOIN fair_participants ON fair_participants.id = fair_participant_student.fair_participant_id 
+          AND fair_participants.deleted_at IS NULL
+        WHERE fair_participant_student.student_id = s.id
+          AND fair_participants.fair_id = f.id
+          AND fair_participants.team_id = t.id
+          AND fair_participant_student.is_favorite = 1
+    ) THEN 'Event Guide Favorite' ELSE '' END) as event_guide_favourite
 FROM user_fair_students ufs
 JOIN students s ON ufs.student_id = s.id
 JOIN fairs f ON ufs.fair_id = f.id
@@ -281,6 +291,7 @@ func (sp *StudentScanProcessor) FetchData(db *sql.DB, config Config) (interface{
 			&scanData.Notes,
 			&scanData.Rating,
 			&scanData.FollowUp,
+			&scanData.EventGuideFavourite,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)

@@ -99,6 +99,7 @@ type StudentScanData struct {
 	ParentEncountered                        sql.NullBool   // ufs.parent_encountered
 	UpdatedTime                              sql.NullTime   // ufs.updated_at
 	ScanRep                                  sql.NullString // CONCAT(u.first_name, ' ', u.last_name)
+	EventGuideFavourite                      sql.NullString // MAX(CASE WHEN EXISTS (
 }
 
 // Scan represents a basic scan record. (Removed as replaced by StudentScanData)
