@@ -14,12 +14,26 @@ import (
 // BaseProcessor contains shared functionality between different scan processors
 type BaseProcessor struct {
 	scanTypeID int
+	debug      bool
 }
 
 // NewBaseProcessor creates a new base processor with the specified scan type ID
 func NewBaseProcessor(scanTypeID int) *BaseProcessor {
 	return &BaseProcessor{
 		scanTypeID: scanTypeID,
+		debug:      false, // Debug mode off by default
+	}
+}
+
+// SetDebug enables or disables debug mode for query logging.
+func (bp *BaseProcessor) SetDebug(enabled bool) {
+	bp.debug = enabled
+}
+
+// LogDebug prints a message only if debug mode is enabled.
+func (bp *BaseProcessor) LogDebug(format string, args ...interface{}) {
+	if bp.debug {
+		fmt.Printf(format, args...)
 	}
 }
 
@@ -345,6 +359,8 @@ func (bp *BaseProcessor) getScanTypeName() string {
 	switch bp.scanTypeID {
 	case 1:
 		return "students"
+	case 2:
+		return "cis"
 	case 6:
 		return "professionals"
 	default:

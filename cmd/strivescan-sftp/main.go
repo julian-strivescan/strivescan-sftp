@@ -29,10 +29,11 @@ func main() {
 
 	// --- Flags ---
 	dataType := flag.String("type", "scans", "Type of data to process (scans or connections)")
-	scanType := flag.String("scan-type", "all", "Type of scan to process (student, professional, or all)")
+	scanType := flag.String("scan-type", "student", "Type of scan to process (student, professional, cis, or all)")
 	days := flag.Int("days", 3, "Number of days back to process data for")
 	teamID := flag.Int("team", 0, "Specific team ID to process (optional)") // Use 0 as a sentinel for 'not set'
 	force := flag.Bool("force", false, "Force reprocessing even if data seems up-to-date")
+	debug := flag.Bool("debug", false, "Enable debug mode for query logging")
 
 	flag.Parse() // Parse the flags
 
@@ -57,7 +58,12 @@ func main() {
 	} else {
 		fmt.Println("Team ID: (Not specified)")
 	}
-	fmt.Printf("Force: %t\n", *force)
+	if *force {
+		fmt.Println("Force: true")
+	}
+	if *debug {
+		fmt.Println("Debug: true")
+	}
 	fmt.Println("---------------------")
 
 	// --- Determine Action based on Type ---
@@ -77,13 +83,38 @@ func main() {
 			processScans(proc.NewStudentScanProcessor(), config, db)
 		case "professional":
 			processScans(proc.NewProfessionalScanProcessor(), config, db)
+		case "cis":
+			processScans(proc.NewCISScanProcessor(), config, db)
+		case "global":
+			processScans(proc.NewGlobalScanProcessor(), config, db)
+		case "parent":
+			processScans(proc.NewParentScanProcessor(), config, db)
+		case "ontario-student":
+			processScans(proc.NewOntarioStudentScanProcessor(), config, db)
+		case "ontario-parent":
+			processScans(proc.NewOntarioParentScanProcessor(), config, db)
+		case "ontario-counsellor":
+			processScans(proc.NewOntarioCounsellorScanProcessor(), config, db)
 		case "all":
 			fmt.Println("\nProcessing student scans...")
 			processScans(proc.NewStudentScanProcessor(), config, db)
-			fmt.Println("\nProcessing professional scans...")
+			fmt.Println("\nProcessing CIS scans...")
+			processScans(proc.NewCISScanProcessor(), config, db)
+			processScans(proc.NewLindenScanProcessor(), config, db)
+			processScans(proc.NewLindenBoardingScanProcessor(), config, db)
+			fmt.Println("\nProcessing Global scans...")
+			processScans(proc.NewGlobalScanProcessor(), config, db)
+			fmt.Println("\nProcessing Professional scans...")
 			processScans(proc.NewProfessionalScanProcessor(), config, db)
+			fmt.Println("\nProcessing Parent scans...")
+			processScans(proc.NewParentScanProcessor(), config, db)
+			fmt.Println("\nProcessing Ontario student scans...")
+			processScans(proc.NewOntarioStudentScanProcessor(), config, db)
+			fmt.Println("\nProcessing Ontario parent scans...")
+			processScans(proc.NewOntarioParentScanProcessor(), config, db)
+			processScans(proc.NewOntarioCounsellorScanProcessor(), config, db)
 		default:
-			color.Red("Invalid scan type specified: %s. Use 'student', 'professional', or 'all'.", *scanType)
+			color.Red("Invalid scan type specified: %s. Use 'student', 'professional', 'cis', 'ontario_student', 'ontario_parent', 'global', or 'all'.", *scanType)
 			os.Exit(1)
 		}
 	} else if *dataType == "connections" {

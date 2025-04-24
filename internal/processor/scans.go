@@ -161,19 +161,19 @@ func (sp *StudentScanProcessor) FetchData(db *sql.DB, config Config) (interface{
 	}
 
 	var query strings.Builder
-	args := []interface{}{config.Days, sp.scanTypeID} // Add scan type ID as the last argument
+	args := []interface{}{config.Days, sp.scanTypeID}
 
-	query.WriteString(studentScanQueryBase)
+	query.WriteString(sp.GetScanQuery())
 
 	if config.TeamID != 0 {
 		query.WriteString(" AND t.id = ?")
 		args = append(args, config.TeamID)
 	}
 
-	query.WriteString(studentScanQueryGroupBy)
+	query.WriteString(sp.GetScanQueryGroupBy())
 
 	finalQuery := query.String()
-	fmt.Printf("Executing Query:\n%s\nArgs: %v\n", finalQuery, args)
+	sp.LogDebug("Executing Query:\n%s\nArgs: %v\n", finalQuery, args)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Hour)
 	defer cancel()
