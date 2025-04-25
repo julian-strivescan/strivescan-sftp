@@ -326,6 +326,7 @@ func (pp *ProfessionalScanProcessor) FetchData(db *sql.DB, config Config) (inter
 			&scanData.Notes,
 			&scanData.Rating,
 			&scanData.FollowUp,
+			&scanData.EventGuideFavourite,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)

@@ -182,6 +182,7 @@ func (pp *ParentScanProcessor) FetchData(db *sql.DB, config Config) (interface{}
 			&scanData.Notes,
 			&scanData.Rating,
 			&scanData.FollowUp,
+			&scanData.EventGuideFavourite,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
@@ -228,13 +229,41 @@ func (pp *ParentScanProcessor) TransformData(data interface{}) (map[int64][][]st
 func (pp *ParentScanProcessor) TransformScanToRow(scan models.StudentScanData) []string {
 	return []string{
 		scan.FairName,
-		scan.InternalEventID,
-		scan.FirstName,
-		scan.LastName,
-		scan.Email,
-		scan.Phone,
-		scan.TextPermission,
-		scan.AddressLine1,
+		pp.nullStr(scan.InternalEventID),
+		pp.nullStr(scan.ParentRelationship),
+		pp.nullStr(scan.ParentFirstName),
+		pp.nullStr(scan.ParentLastName),
+		pp.nullStr(scan.ParentEmail),
+		pp.nullStr(scan.Phone),
+		func() string {
+			if scan.TextPermission.Valid && scan.TextPermission.String == "1" {
+				return "Yes"
+			}
+			return "No"
+		}(),
+		pp.nullStr(scan.FirstName),
+		pp.nullStr(scan.LastName),
+		pp.nullStr(scan.Email),
+		pp.nullStr(scan.Birthdate),
+		pp.nullStr(scan.HighSchool),
+		pp.nullStr(scan.HighSchoolCity),
+		pp.nullStr(scan.HighSchoolRegion),
+		pp.nullStr(scan.CEEB),
+		pp.nullStr(scan.GraduationYear),
+		pp.nullStr(scan.CollegeStartSemester),
+		pp.nullInt(scan.Rating),
+		pp.nullStr(scan.Notes),
+		pp.nullBool(scan.FollowUp),
+		func() string {
+			if scan.Locale.Valid {
+				return scan.Locale.String
+			}
+			return "en"
+		}(),
+		pp.nullTime(scan.ScanTime, "2006-01-02 15:04:05"),
+		pp.nullStr(scan.ScanRep),
+		pp.nullStr(scan.EventGuideFavourite),
+		pp.nullTime(scan.UpdatedTime, "2006-01-02 15:04:05"),
 	}
 }
 
