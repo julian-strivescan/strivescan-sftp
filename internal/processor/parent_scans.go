@@ -22,6 +22,37 @@ func NewParentScanProcessor() *ParentScanProcessor {
 	}
 }
 
+func (pp *ParentScanProcessor) GetCSVHeader() []string {
+	return []string{
+		"Fair Name",
+		"Internal Event ID",
+		"Relationship to Student",
+		"Parent First Name",
+		"Parent Last Name",
+		"Parent Email Address",
+		"Phone",
+		"Text Permission",
+		"Student First Name",
+		"Student Last Name",
+		"Student Email Address",
+		"Birthdate",
+		"High School",
+		"High School City",
+		"High School State",
+		"CEEB Code",
+		"Graduation Year",
+		"College Start",
+		"Rating",
+		"Notes",
+		"Follow Up",
+		"Registration Language",
+		"Scan Time",
+		"Scan Rep",
+		"Event Guide",
+		"Updated Time",
+	}
+}
+
 // FetchData retrieves parent scan data (type 3) from the database.
 func (pp *ParentScanProcessor) FetchData(db *sql.DB, config Config) (interface{}, error) {
 	fmt.Println("Fetching parent scan data (type 3)...")
@@ -192,6 +223,19 @@ func (pp *ParentScanProcessor) TransformData(data interface{}) (map[int64][][]st
 
 	fmt.Printf("Data grouped into %d teams.\n", len(groupedData))
 	return groupedData, nil
+}
+
+func (pp *ParentScanProcessor) TransformScanToRow(scan models.StudentScanData) []string {
+	return []string{
+		scan.FairName,
+		scan.InternalEventID,
+		scan.FirstName,
+		scan.LastName,
+		scan.Email,
+		scan.Phone,
+		scan.TextPermission,
+		scan.AddressLine1,
+	}
 }
 
 // WriteCSV saves the grouped parent scan data to team-specific CSV files.
