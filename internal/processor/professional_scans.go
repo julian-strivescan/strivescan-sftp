@@ -152,6 +152,51 @@ GROUP BY
     u.first_name, u.last_name
 ORDER BY t.id;`
 
+func (pp *ProfessionalScanProcessor) GetCSVHeader() []string {
+	return []string{
+		"Fair Name",
+		"Internal Event ID",
+		"First Name",
+		"Last Name",
+		"Email",
+		"Phone",
+		"Text Permission",
+		"Address 1",
+		"Address 2",
+		"Address City",
+		"Address State",
+		"Address ZIP",
+		"High School",
+		"High School City",
+		"High School State",
+		"CEEB Code",
+		"Organization",
+		"Professional Type",
+		"Preferred Name",
+		"Pronouns",
+		"Job Title",
+		"Work Phone",
+		"Rating",
+		"Notes",
+		"Follow Up",
+		"Scan Time",
+		"Scan Rep",
+		"Additional Data 1",
+		"Additional Data 2",
+		"Additional Data 3",
+		"Additional Data 4",
+		"Additional Data 5",
+		"Additional Data 6",
+		"Additional Data 7",
+		"Additional Data 8",
+		"Additional Data 9",
+		"Additional Data 10",
+		"Registration Language",
+		"Event Guide",
+		"Updated Time",
+	}
+}
+
 // FetchData retrieves professional scan data (type 6) from the database.
 func (pp *ProfessionalScanProcessor) FetchData(db *sql.DB, config Config) (interface{}, error) {
 	fmt.Println("Fetching professional scan data (type 6)...")
@@ -322,6 +367,62 @@ func (pp *ProfessionalScanProcessor) TransformData(data interface{}) (map[int64]
 
 	fmt.Printf("Data grouped into %d teams.\n", len(groupedData))
 	return groupedData, nil
+}
+
+func (pp *ProfessionalScanProcessor) TransformScanToRow(scan models.StudentScanData) []string {
+	return []string{
+		scan.FairName,
+		pp.nullStr(scan.InternalEventID),
+		pp.nullStr(scan.FirstName),
+		pp.nullStr(scan.LastName),
+		pp.nullStr(scan.Email),
+		pp.nullStr(scan.PhoneNumber),
+		func() string {
+			if scan.TextPermission.Valid && scan.TextPermission.String == "1" {
+				return "Yes"
+			}
+			return "No"
+		}(),
+		pp.nullStr(scan.AddressLine1),
+		pp.nullStr(scan.AddressLine2),
+		pp.nullStr(scan.AddressCity),
+		pp.nullStr(scan.AddressState),
+		pp.nullStr(scan.AddressZipcode),
+		pp.nullStr(scan.Birthdate),
+		pp.nullStr(scan.HighSchool),
+		pp.nullStr(scan.HighSchoolCity),
+		pp.nullStr(scan.HighSchoolRegion),
+		pp.nullStr(scan.CEEB),
+		pp.nullStr(scan.Organization),
+		pp.nullStr(scan.ProfessionalType),
+		pp.nullStr(scan.PreferredName),
+		pp.nullStr(scan.Pronouns),
+		pp.nullStr(scan.JobTitle),
+		pp.nullStr(scan.WorkPhone),
+		pp.nullInt(scan.Rating),
+		pp.nullStr(scan.Notes),
+		pp.nullBool(scan.FollowUp),
+		pp.nullTime(scan.ScanTime, "2006-01-02 15:04:05"),
+		pp.nullStr(scan.ScanRep),
+		pp.nullStr(scan.AdditionalData1),
+		pp.nullStr(scan.AdditionalData2),
+		pp.nullStr(scan.AdditionalData3),
+		pp.nullStr(scan.AdditionalData4),
+		pp.nullStr(scan.AdditionalData5),
+		pp.nullStr(scan.AdditionalData6),
+		pp.nullStr(scan.AdditionalData7),
+		pp.nullStr(scan.AdditionalData8),
+		pp.nullStr(scan.AdditionalData9),
+		pp.nullStr(scan.AdditionalData10),
+		func() string {
+			if scan.Locale.Valid {
+				return scan.Locale.String
+			}
+			return "en"
+		}(),
+		pp.nullStr(scan.EventGuideFavourite),
+		pp.nullTime(scan.UpdatedTime, "2006-01-02 15:04:05"),
+	}
 }
 
 // WriteCSV saves the grouped professional scan data to team-specific CSV files.
