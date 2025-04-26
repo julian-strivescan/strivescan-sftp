@@ -338,7 +338,8 @@ func (bp *BaseProcessor) WriteCSVFile(teamID int64, teamData [][]string, baseOut
 
 	// Create team-specific directory path
 	teamDir := filepath.Join(baseOutputDir, strconv.FormatInt(teamID, 10))
-	filename := fmt.Sprintf("scans_%s_%s.csv", bp.getScanTypeName(), timestamp)
+	filename := fmt.Sprintf("StriveScan-Scans-Export-%s_%s.csv", bp.getScanTypeName(), timestamp)
+
 	fp := filepath.Join(teamDir, filename)
 
 	// Create the team-specific output directory if it doesn't exist
