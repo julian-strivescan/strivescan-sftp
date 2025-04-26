@@ -172,6 +172,7 @@ func (opp *OntarioParentScanProcessor) FetchData(db *sql.DB, config Config) (int
 			&scanData.Notes,
 			&scanData.Rating,
 			&scanData.FollowUp,
+			&scanData.EventGuideFavourite,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)

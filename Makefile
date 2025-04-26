@@ -4,13 +4,13 @@ build:
 
 # Run commands
 run:
-	./bin/strivescan-sftp
+	./bin/strivescan-sftp -scan-type all
 
 # Build and run in one command
 dev: build run
 
 # Clean build artifacts
 clean:
-	rm -rf bin/
+	rm -rf bin/ output/
 
 .PHONY: build run dev clean
