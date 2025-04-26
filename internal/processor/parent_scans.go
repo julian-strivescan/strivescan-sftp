@@ -101,6 +101,7 @@ func (pp *ParentScanProcessor) FetchData(db *sql.DB, config Config) (interface{}
 			&scanData.Email,
 			&scanData.Phone,
 			&scanData.PhoneNumber,
+			&scanData.PhoneNumberFormatted,
 			&scanData.AddressLine1,
 			&scanData.AddressLine2,
 			&scanData.AddressCity,

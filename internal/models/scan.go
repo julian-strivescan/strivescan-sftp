@@ -18,6 +18,7 @@ type StudentScanData struct {
 	Email                                    sql.NullString // s.email
 	Phone                                    sql.NullString // s.phone
 	PhoneNumber                              sql.NullString // pn.number
+	PhoneNumberFormatted                     sql.NullString // pn.formatted_number
 	AddressLine1                             sql.NullString // a.line1
 	AddressLine2                             sql.NullString // a.line2
 	AddressCity                              sql.NullString // a.municipality

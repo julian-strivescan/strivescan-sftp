@@ -99,6 +99,7 @@ func (ocp *OntarioCounsellorScanProcessor) FetchData(db *sql.DB, config Config) 
 			&scanData.Email,
 			&scanData.Phone,
 			&scanData.PhoneNumber,
+			&scanData.PhoneNumberFormatted,
 			&scanData.AddressLine1,
 			&scanData.AddressLine2,
 			&scanData.AddressCity,

@@ -53,6 +53,7 @@ SELECT
     s.email,
     s.phone,
     pn.number,
+	pn.formatted_number,
     a.line1 as address_line_1,
     a.line2 as address_line_2,
     a.municipality as address_city,
@@ -179,7 +180,7 @@ GROUP BY
     s.high_school, s.graduation_year, s.gpa, 
     s.area_of_interest_1, s.area_of_interest_2, s.area_of_interest_3, 
     ufs.notes, ufs.rating, ufs.follow_up, ft.guid_id, ufs.created_at, ufs.updated_at, ufs.parent_encountered,
-    u.first_name, u.last_name
+    u.first_name, u.last_name, pn.formatted_number
 ORDER BY t.id;`
 }
 
