@@ -22,6 +22,52 @@ func NewGlobalScanProcessor() *GlobalScanProcessor {
 	}
 }
 
+func (gp *GlobalScanProcessor) GetCSVHeader() []string {
+	return []string{
+		"Event",
+		"Internal Event ID",
+		"First Name",
+		"Last Name",
+		"Email",
+		"Phone",
+		"Formatted Phone",
+		"Text Permission",
+		"Address 1",
+		"Address 2",
+		"Address Municipality",
+		"Address Locality",
+		"Address Region",
+		"Address Postal Code",
+		"Address Country",
+		"Birthdate",
+		"High School",
+		"High School City",
+		"High School Region",
+		"High School Country",
+		"CEEB Code",
+		"Graduation Year",
+		"University Start",
+		"GPA",
+		"GPA Max",
+		"SAT",
+		"ACT",
+		"TOEFL",
+		"IELTS",
+		"Area of Interest 1",
+		"Area of Interest 2",
+		"Area of Interest 3",
+		"Rating",
+		"Notes",
+		"Follow Up",
+		"Parent or Student",
+		"Registration Language",
+		"Scan Time",
+		"Scan Rep",
+		"Event Guide",
+		"Updated Time",
+	}
+}
+
 // FetchData retrieves global scan data (type 2) from the database.
 func (gp *GlobalScanProcessor) FetchData(db *sql.DB, config Config) (interface{}, error) {
 	fmt.Println("Fetching global scan data (type 2)...")
@@ -164,6 +210,62 @@ func (gp *GlobalScanProcessor) FetchData(db *sql.DB, config Config) (interface{}
 
 	fmt.Printf("--- Fetched %d records from database ---\n", len(results))
 	return results, nil
+}
+
+func (gp *GlobalScanProcessor) TransformScanToRow(scan models.StudentScanData) []string {
+	return []string{
+		scan.FairName,
+		gp.nullStr(scan.InternalEventID),
+		gp.nullStr(scan.FirstName),
+		gp.nullStr(scan.LastName),
+		gp.nullStr(scan.Email),
+		gp.nullStr(scan.PhoneNumber),
+		gp.nullStr(scan.PhoneNumber),
+		func() string {
+			if scan.TextPermission.Valid && scan.TextPermission.String == "1" {
+				return "Yes"
+			}
+			return "No"
+		}(),
+		gp.nullStr(scan.AddressLine1),
+		gp.nullStr(scan.AddressLine2),
+		gp.nullStr(scan.AddressCity),
+		gp.nullStr(scan.AddressState),
+		gp.nullStr(scan.AddressState),
+		gp.nullStr(scan.AddressZipcode),
+		gp.nullStr(scan.AddressCountryCode),
+		gp.nullStr(scan.Birthdate),
+		gp.nullStr(scan.HighSchool),
+		gp.nullStr(scan.HighSchoolCity),
+		gp.nullStr(scan.HighSchoolRegion),
+		gp.nullStr(scan.HighSchoolCountry),
+		gp.nullStr(scan.CEEB),
+		gp.nullStr(scan.GraduationYear),
+		gp.nullStr(scan.CollegeStartSemester),
+		gp.nullStr(scan.GPA),
+		gp.nullStr(scan.GPAMax),
+		gp.nullStr(scan.SatScore),
+		gp.nullStr(scan.ActScore),
+		gp.nullStr(scan.TOEFLScore),
+		gp.nullStr(scan.IELTSScore),
+		gp.nullStr(scan.AreaOfInterest1),
+		gp.nullStr(scan.AreaOfInterest2),
+		gp.nullStr(scan.AreaOfInterest3),
+		gp.nullInt(scan.Rating),
+		gp.nullStr(scan.Notes),
+		gp.nullBool(scan.FollowUp),
+		func() string {
+			if scan.ParentEncountered.Valid && scan.ParentEncountered.Bool {
+				return "Parent"
+			}
+			return "Student"
+		}(),
+		gp.nullStr(scan.Locale),
+		gp.nullTime(scan.ScanTime, "2006-01-02 15:04:05"),
+		gp.nullStr(scan.ScanRep),
+		gp.nullStr(scan.EventGuideFavourite),
+		gp.nullTime(scan.UpdatedTime, "2006-01-02 15:04:05"),
+	}
 }
 
 // TransformData groups global scan data by TeamID and prepares it for CSV.

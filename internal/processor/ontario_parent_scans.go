@@ -22,6 +22,26 @@ func NewOntarioParentScanProcessor() *OntarioParentScanProcessor {
 	}
 }
 
+func (opp *OntarioParentScanProcessor) GetCSVHeader() []string {
+	return []string{
+		"Event Name",
+		"Internal Event ID",
+		"Relationship to Student",
+		"Parent First Name",
+		"Parent Last Name",
+		"Parent Email",
+		"University Start",
+		"Rating",
+		"Notes",
+		"Follow Up",
+		"Registration Language",
+		"Scan Time",
+		"Scan Rep",
+		"Event Guide",
+		"Updated Time",
+	}
+}
+
 // FetchData retrieves Ontario parent scan data (type 5) from the database.
 func (opp *OntarioParentScanProcessor) FetchData(db *sql.DB, config Config) (interface{}, error) {
 	fmt.Println("Fetching Ontario parent scan data (type 5)...")
@@ -192,6 +212,26 @@ func (opp *OntarioParentScanProcessor) TransformData(data interface{}) (map[int6
 
 	fmt.Printf("Data grouped into %d teams.\n", len(groupedData))
 	return groupedData, nil
+}
+
+func (opp *OntarioParentScanProcessor) TransformScanToRow(scan models.StudentScanData) []string {
+	return []string{
+		scan.FairName,
+		opp.nullStr(scan.InternalEventID),
+		opp.nullStr(scan.ParentRelationship),
+		opp.nullStr(scan.ParentFirstName),
+		opp.nullStr(scan.ParentLastName),
+		opp.nullStr(scan.ParentEmail),
+		opp.nullStr(scan.CollegeStartSemester),
+		opp.nullInt(scan.Rating),
+		opp.nullStr(scan.Notes),
+		opp.nullBool(scan.FollowUp),
+		opp.nullStr(scan.Locale),
+		opp.nullTime(scan.ScanTime, "2006-01-02 15:04:05"),
+		opp.nullStr(scan.ScanRep),
+		opp.nullStr(scan.EventGuideFavourite),
+		opp.nullTime(scan.UpdatedTime, "2006-01-02 15:04:05"),
+	}
 }
 
 // WriteCSV saves the grouped Ontario parent scan data to team-specific CSV files.

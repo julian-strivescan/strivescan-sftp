@@ -22,6 +22,35 @@ func NewOntarioCounsellorScanProcessor() *OntarioCounsellorScanProcessor {
 	}
 }
 
+func (ocp *OntarioCounsellorScanProcessor) GetCSVHeader() []string {
+	return []string{
+		"Event Name",
+		"Internal Event ID",
+		"First Name",
+		"Last Name",
+		"Email",
+		"Address City",
+		"Address Province",
+		"Address Postal Code",
+		"Address Country",
+		"School",
+		"School City",
+		"School Province",
+		"CEEB Code",
+		"Organization",
+		"Professional Type",
+		"Job Title",
+		"Rating",
+		"Notes",
+		"Follow Up",
+		"Registration Language",
+		"Scan Time",
+		"Scan Rep",
+		"Event Guide",
+		"Updated Time",
+	}
+}
+
 // FetchData retrieves Ontario Counsellor scan data (type 10) from the database.
 func (ocp *OntarioCounsellorScanProcessor) FetchData(db *sql.DB, config Config) (interface{}, error) {
 	fmt.Println("Fetching Ontario Counsellor scan data (type 10)...")
@@ -192,6 +221,35 @@ func (ocp *OntarioCounsellorScanProcessor) TransformData(data interface{}) (map[
 
 	fmt.Printf("Data grouped into %d teams.\n", len(groupedData))
 	return groupedData, nil
+}
+
+func (ocp *OntarioCounsellorScanProcessor) TransformScanToRow(scan models.StudentScanData) []string {
+	return []string{
+		scan.FairName,
+		ocp.nullStr(scan.InternalEventID),
+		ocp.nullStr(scan.FirstName),
+		ocp.nullStr(scan.LastName),
+		ocp.nullStr(scan.Email),
+		ocp.nullStr(scan.AddressCity),
+		ocp.nullStr(scan.AddressState),
+		ocp.nullStr(scan.AddressZipcode),
+		ocp.nullStr(scan.AddressCountryCode),
+		ocp.nullStr(scan.HighSchool),
+		ocp.nullStr(scan.HighSchoolCity),
+		ocp.nullStr(scan.HighSchoolRegion),
+		ocp.nullStr(scan.CEEB),
+		ocp.nullStr(scan.Organization),
+		ocp.nullStr(scan.ProfessionalType),
+		ocp.nullStr(scan.JobTitle),
+		ocp.nullInt(scan.Rating),
+		ocp.nullStr(scan.Notes),
+		ocp.nullBool(scan.FollowUp),
+		ocp.nullStr(scan.Locale),
+		ocp.nullTime(scan.ScanTime, "2006-01-02 15:04:05"),
+		ocp.nullStr(scan.ScanRep),
+		ocp.nullStr(scan.EventGuideFavourite),
+		ocp.nullTime(scan.UpdatedTime, "2006-01-02 15:04:05"),
+	}
 }
 
 // WriteCSV saves the grouped Ontario Counsellor scan data to team-specific CSV files.

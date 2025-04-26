@@ -22,6 +22,44 @@ func NewCISScanProcessor() *CISScanProcessor {
 	}
 }
 
+func (cp *CISScanProcessor) GetCSVHeader() []string {
+	return []string{
+		"Event",
+		"Internal Event ID",
+		"First Name",
+		"Last Name",
+		"Email",
+		"Phone",
+		"Formatted Phone",
+		"Text Permission",
+		"Birthdate",
+		"High School",
+		"High School City",
+		"High School Region",
+		"High School Country",
+		"CEEB Code",
+		"Graduation Year",
+		"University Start",
+		"Area of Interest 1",
+		"Area of Interest 2",
+		"Area of Interest 3",
+		"Country of Citizenship 1",
+		"Country of Citizenship 2",
+		"Gender",
+		"Country of Interest 1",
+		"Country of Interest 2",
+		"Country of Interest 3",
+		"Rating",
+		"Notes",
+		"Follow Up",
+		"Parent or Student",
+		"Scan Time",
+		"Scan Rep",
+		"Event Guide",
+		"Updated Time",
+	}
+}
+
 // FetchData retrieves CIS scan data (type 2) from the database.
 func (cp *CISScanProcessor) FetchData(db *sql.DB, config Config) (interface{}, error) {
 	fmt.Println("Fetching CIS scan data (type 2)...")
@@ -192,6 +230,54 @@ func (cp *CISScanProcessor) TransformData(data interface{}) (map[int64][][]strin
 
 	fmt.Printf("Data grouped into %d teams.\n", len(groupedData))
 	return groupedData, nil
+}
+
+func (cp *CISScanProcessor) TransformScanToRow(scan models.StudentScanData) []string {
+	return []string{
+		scan.FairName,
+		cp.nullStr(scan.InternalEventID),
+		cp.nullStr(scan.FirstName),
+		cp.nullStr(scan.LastName),
+		cp.nullStr(scan.Email),
+		cp.nullStr(scan.PhoneNumber),
+		cp.nullStr(scan.PhoneNumber),
+		func() string {
+			if scan.TextPermission.Valid && scan.TextPermission.String == "1" {
+				return "Yes"
+			}
+			return "No"
+		}(),
+		cp.nullStr(scan.Birthdate),
+		cp.nullStr(scan.HighSchool),
+		cp.nullStr(scan.HighSchoolCity),
+		cp.nullStr(scan.HighSchoolRegion),
+		cp.nullStr(scan.HighSchoolCountry),
+		cp.nullStr(scan.CEEB),
+		cp.nullStr(scan.GraduationYear),
+		cp.nullStr(scan.CollegeStartSemester),
+		cp.nullStr(scan.AreaOfInterest1),
+		cp.nullStr(scan.AreaOfInterest2),
+		cp.nullStr(scan.AreaOfInterest3),
+		cp.nullStr(scan.CountryOfCitizenship1),
+		cp.nullStr(scan.CountryOfCitizenship2),
+		cp.nullStr(scan.Gender),
+		cp.nullStr(scan.CountryOfInterest1),
+		cp.nullStr(scan.CountryOfInterest2),
+		cp.nullStr(scan.CountryOfInterest3),
+		cp.nullInt(scan.Rating),
+		cp.nullStr(scan.Notes),
+		cp.nullBool(scan.FollowUp),
+		func() string {
+			if scan.ParentEncountered.Valid && scan.ParentEncountered.Bool {
+				return "Parent"
+			}
+			return "Student"
+		}(),
+		cp.nullTime(scan.ScanTime, "2006-01-02 15:04:05"),
+		cp.nullStr(scan.ScanRep),
+		cp.nullStr(scan.EventGuideFavourite),
+		cp.nullTime(scan.UpdatedTime, "2006-01-02 15:04:05"),
+	}
 }
 
 // WriteCSV saves the grouped CIS scan data to team-specific CSV files.

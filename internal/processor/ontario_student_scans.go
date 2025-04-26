@@ -22,6 +22,31 @@ func NewOntarioStudentScanProcessor() *OntarioStudentScanProcessor {
 	}
 }
 
+func (osp *OntarioStudentScanProcessor) GetCSVHeader() []string {
+	return []string{
+		"Event Name",
+		"Internal Event ID",
+		"First Name",
+		"Last Name",
+		"Email",
+		"Address City",
+		"Address Province",
+		"Address Postal Code",
+		"Address Country",
+		"Birthdate",
+		"University Start",
+		"Rating",
+		"Notes",
+		"Follow Up",
+		"Parent or Student",
+		"Registration Language",
+		"Scan Time",
+		"Scan Rep",
+		"Event Guide",
+		"Updated Time",
+	}
+}
+
 // FetchData retrieves Ontario student scan data (type 4) from the database.
 func (osp *OntarioStudentScanProcessor) FetchData(db *sql.DB, config Config) (interface{}, error) {
 	fmt.Println("Fetching Ontario student scan data (type 4)...")
@@ -192,6 +217,36 @@ func (osp *OntarioStudentScanProcessor) TransformData(data interface{}) (map[int
 
 	fmt.Printf("Data grouped into %d teams.\n", len(groupedData))
 	return groupedData, nil
+}
+
+func (osp *OntarioStudentScanProcessor) TransformScanToRow(scan models.StudentScanData) []string {
+	return []string{
+		scan.FairName,
+		osp.nullStr(scan.InternalEventID),
+		osp.nullStr(scan.FirstName),
+		osp.nullStr(scan.LastName),
+		osp.nullStr(scan.Email),
+		osp.nullStr(scan.AddressCity),
+		osp.nullStr(scan.AddressState),
+		osp.nullStr(scan.AddressZipcode),
+		osp.nullStr(scan.AddressCountryCode),
+		osp.nullStr(scan.Birthdate),
+		osp.nullStr(scan.CollegeStartSemester),
+		osp.nullInt(scan.Rating),
+		osp.nullStr(scan.Notes),
+		osp.nullBool(scan.FollowUp),
+		func() string {
+			if scan.ParentEncountered.Valid && scan.ParentEncountered.Bool {
+				return "Parent"
+			}
+			return "Student"
+		}(),
+		osp.nullStr(scan.Locale),
+		osp.nullTime(scan.ScanTime, "2006-01-02 15:04:05"),
+		osp.nullStr(scan.ScanRep),
+		osp.nullStr(scan.EventGuideFavourite),
+		osp.nullTime(scan.UpdatedTime, "2006-01-02 15:04:05"),
+	}
 }
 
 // WriteCSV saves the grouped Ontario student scan data to team-specific CSV files.
