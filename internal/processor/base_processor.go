@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"time"
 
 	"github.com/strivescan/strivescan-sftp/internal/models"
 )
@@ -338,7 +339,10 @@ func (bp *BaseProcessor) WriteCSVFile(teamID int64, teamData [][]string, baseOut
 
 	// Create team-specific directory path
 	teamDir := filepath.Join(baseOutputDir, strconv.FormatInt(teamID, 10))
-	filename := fmt.Sprintf("StriveScan-Scans-Export-%s_%s.csv", bp.getScanTypeName(), timestamp)
+
+	// Format timestamp in Ymd-hisa format
+	formattedTimestamp := time.Now().Format("20060102-030405pm")
+	filename := fmt.Sprintf("StriveScan-Scans-Export-%s_%s.csv", bp.getScanTypeName(), formattedTimestamp)
 
 	fp := filepath.Join(teamDir, filename)
 
@@ -370,12 +374,26 @@ func (bp *BaseProcessor) WriteCSVFile(teamID int64, teamData [][]string, baseOut
 func (bp *BaseProcessor) getScanTypeName() string {
 	switch bp.scanTypeID {
 	case 1:
-		return "students"
+		return "USA"
 	case 2:
-		return "cis"
+		return "CIS"
+	case 3:
+		return "LINDEN"
+	case 4:
+		return "LINDEN_BOARDING"
+	case 5:
+		return "GLOBAL"
 	case 6:
-		return "professionals"
+		return "PROFESSIONAL"
+	case 7:
+		return "PARENT"
+	case 8:
+		return "ONTARIO_STUDENT"
+	case 9:
+		return "ONTARIO_PARENT"
+	case 10:
+		return "ONTARIO_PROFESSIONAL"
 	default:
-		return "unknown"
+		return "UNKNOWN"
 	}
 }
