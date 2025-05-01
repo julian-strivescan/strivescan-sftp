@@ -13,7 +13,9 @@ import (
 	"time"
 
 	"github.com/cristalhq/base64"
+	"github.com/pkg/sftp"
 	"github.com/strivescan/strivescan-sftp/internal/models"
+	"golang.org/x/crypto/ssh"
 )
 
 // SFTPProcessor handles uploading files to SFTP servers
@@ -151,6 +153,9 @@ func (sp *SFTPProcessor) prepareForUpload(teamIDs []string) error {
 				Valid:  true,
 			}
 		}
+
+		// Get ready to send it over to the sendFiles function
+		sp.sendFiles(sftpCred)
 	}
 
 	fmt.Println("Wrapping up")
@@ -192,7 +197,7 @@ func (sp *SFTPProcessor) decryptString(encrypted string) (string, error) {
 		if err != nil {
 			fmt.Printf("Base64 decode error after repair: %v\n", err)
 			return "", fmt.Errorf("failed to decode base64: %w", err)
-		}asdsfsdf
+		}
 
 		// Try to parse the decoded data as JSON
 		err = json.Unmarshal(decoded, &jsonData)
@@ -262,6 +267,36 @@ func (sp *SFTPProcessor) decryptFromJSON(jsonData map[string]interface{}, appKey
 	}
 
 	return string(plaintext), nil
+}
+
+func (sp *SFTPProcessor) sendFiles(sftpCred models.SFTPCredentials) error {
+	fmt.Printf("Sending files to SFTP server for Team %d\n", sftpCred.TeamID)
+	// Create SFTP client config
+	config := &ssh.ClientConfig{
+		User: sftpCred.Username,
+		Auth: []ssh.AuthMethod{
+			ssh.Password(sftpCred.Password.String),
+		},
+		// For testing only - don't use in production
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+	}
+
+	// Connect to SSH server
+	conn, err := ssh.Dial("tcp", fmt.Sprintf("localhost:%s", sftpCred.Port), config)
+	if err != nil {
+		return fmt.Errorf("failed to connect to SSH server: %w", err)
+	}
+	defer conn.Close()
+
+	// Create new SFTP client
+	client, err := sftp.NewClient(conn)
+	if err != nil {
+		return fmt.Errorf("failed to create SFTP client: %w", err)
+	}
+	defer client.Close()
+
+	fmt.Printf("Successfully connected to SFTP server at localhost:%s\n", sftpCred.Port)
+	return nil
 }
 
 // isBase64 checks if a string is valid base64

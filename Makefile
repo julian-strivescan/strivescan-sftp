@@ -4,7 +4,7 @@ build:
 
 # Run commands
 run:
-	./bin/strivescan-sftp -scan-type all -days 7
+	./bin/strivescan-sftp -scan-type all -days 7 -team 1
 
 # Build and run in one command
 dev: build run
