@@ -7,6 +7,7 @@ require (
 	github.com/VividCortex/ewma v1.2.0 // indirect
 	github.com/cheggaaa/pb/v3 v3.1.7 // indirect
 	github.com/common-nighthawk/go-figure v0.0.0-20210622060536-734e95fb86be // indirect
+	github.com/cristalhq/base64 v0.1.2 // indirect
 	github.com/fatih/color v1.18.0 // indirect
 	github.com/go-sql-driver/mysql v1.9.2 // indirect
 	github.com/joho/godotenv v1.5.1 // indirect

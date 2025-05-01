@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os" // For os.Exit
+	"path/filepath"
 
 	figure "github.com/common-nighthawk/go-figure"
 	"github.com/fatih/color"
@@ -96,23 +97,23 @@ func main() {
 		case "ontario-counsellor":
 			processScans(proc.NewOntarioCounsellorScanProcessor(), config, db)
 		case "all":
-			fmt.Println("\nProcessing student scans...")
-			processScans(proc.NewStudentScanProcessor(), config, db)
-			fmt.Println("\nProcessing CIS scans...")
-			processScans(proc.NewCISScanProcessor(), config, db)
-			processScans(proc.NewLindenScanProcessor(), config, db)
-			processScans(proc.NewLindenBoardingScanProcessor(), config, db)
-			fmt.Println("\nProcessing Global scans...")
-			processScans(proc.NewGlobalScanProcessor(), config, db)
-			fmt.Println("\nProcessing Professional scans...")
-			processScans(proc.NewProfessionalScanProcessor(), config, db)
-			fmt.Println("\nProcessing Parent scans...")
-			processScans(proc.NewParentScanProcessor(), config, db)
-			fmt.Println("\nProcessing Ontario student scans...")
-			processScans(proc.NewOntarioStudentScanProcessor(), config, db)
-			fmt.Println("\nProcessing Ontario parent scans...")
-			processScans(proc.NewOntarioParentScanProcessor(), config, db)
-			processScans(proc.NewOntarioCounsellorScanProcessor(), config, db)
+			// fmt.Println("\nProcessing student scans...")
+			// processScans(proc.NewStudentScanProcessor(), config, db)
+			// fmt.Println("\nProcessing CIS scans...")
+			// processScans(proc.NewCISScanProcessor(), config, db)
+			// processScans(proc.NewLindenScanProcessor(), config, db)
+			// processScans(proc.NewLindenBoardingScanProcessor(), config, db)
+			// fmt.Println("\nProcessing Global scans...")
+			// processScans(proc.NewGlobalScanProcessor(), config, db)
+			// fmt.Println("\nProcessing Professional scans...")
+			// processScans(proc.NewProfessionalScanProcessor(), config, db)
+			// fmt.Println("\nProcessing Parent scans...")
+			// processScans(proc.NewParentScanProcessor(), config, db)
+			// fmt.Println("\nProcessing Ontario student scans...")
+			// processScans(proc.NewOntarioStudentScanProcessor(), config, db)
+			// fmt.Println("\nProcessing Ontario parent scans...")
+			// processScans(proc.NewOntarioParentScanProcessor(), config, db)
+			// processScans(proc.NewOntarioCounsellorScanProcessor(), config, db)
 		default:
 			color.Red("Invalid scan type specified: %s. Use 'student', 'professional', 'cis', 'ontario_student', 'ontario_parent', 'global', or 'all'.", *scanType)
 			os.Exit(1)
@@ -126,6 +127,35 @@ func main() {
 	}
 
 	color.Green("\nProcessing complete.")
+
+	// Process files with SFTP processor
+	sftpProcessor := proc.NewSFTPProcessor(db)
+	// Get all files in output directory
+	createdFilePaths := []string{}
+	err = filepath.Walk("output", func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() {
+			createdFilePaths = append(createdFilePaths, path)
+		}
+		return nil
+	})
+
+	if err != nil {
+		color.Red("Error walking output directory: %v", err)
+		os.Exit(1)
+	}
+
+	if len(createdFilePaths) == 0 {
+		color.Yellow("No files found in output directory")
+		os.Exit(0)
+	}
+
+	if err := sftpProcessor.Run(createdFilePaths, len(createdFilePaths)); err != nil {
+		color.Red("Error uploading files via SFTP: %v", err)
+		os.Exit(1)
+	}
 }
 
 // processScans handles the common processing logic for both student and professional scans
