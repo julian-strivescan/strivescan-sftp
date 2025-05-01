@@ -317,6 +317,59 @@ func (sp *SFTPProcessor) sendFiles(sftpCred models.SFTPCredentials) error {
 		return err
 	}
 
+	teamDirectory := fmt.Sprintf("exports/team/%d", sftpCred.TeamID)
+	err = sftpClient.MkdirAll(filepath.Join(uploadDirectory, teamDirectory))
+	if err != nil {
+		fmt.Printf("Failed to create team directory: %v\n", err)
+		return err
+	}
+
+	uploadDirectory = filepath.Join(uploadDirectory, teamDirectory)
+
+	fmt.Printf("Uploading files to %s\n", uploadDirectory)
+
+	// Upload all files from the team's output directory
+	localTeamDir := fmt.Sprintf("output/%d", sftpCred.TeamID)
+	files, err := os.ReadDir(localTeamDir)
+	if err != nil {
+		fmt.Printf("Failed to read local team directory: %v\n", err)
+		return err
+	}
+
+	for _, file := range files {
+		if file.IsDir() {
+			continue
+		}
+
+		localPath := filepath.Join(localTeamDir, file.Name())
+		remotePath := filepath.Join(uploadDirectory, file.Name())
+
+		// Open local file
+		localFile, err := os.Open(localPath)
+		if err != nil {
+			fmt.Printf("Failed to open local file %s: %v\n", localPath, err)
+			return err
+		}
+		defer localFile.Close()
+
+		// Create remote file
+		remoteFile, err := sftpClient.Create(remotePath)
+		if err != nil {
+			fmt.Printf("Failed to create remote file %s: %v\n", remotePath, err)
+			return err
+		}
+		defer remoteFile.Close()
+
+		// Copy file contents
+		fmt.Printf("Uploading %s to %s\n", localPath, remotePath)
+		_, err = remoteFile.ReadFrom(localFile)
+		if err != nil {
+			fmt.Printf("Failed to upload file %s: %v\n", localPath, err)
+			return err
+		}
+		fmt.Printf("Successfully uploaded %s\n", file.Name())
+	}
+
 	return nil
 }
 
