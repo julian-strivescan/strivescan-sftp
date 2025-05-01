@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"os" // For os.Exit
-	"path/filepath"
 
 	figure "github.com/common-nighthawk/go-figure"
 	"github.com/fatih/color"
@@ -126,36 +125,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	color.Green("\nProcessing complete.")
+	color.Green("\nCSV Creation Complete.")
 
 	// Process files with SFTP processor
 	sftpProcessor := proc.NewSFTPProcessor(db)
-	// Get all files in output directory
-	createdFilePaths := []string{}
-	err = filepath.Walk("output", func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if !info.IsDir() {
-			createdFilePaths = append(createdFilePaths, path)
-		}
-		return nil
-	})
-
-	if err != nil {
-		color.Red("Error walking output directory: %v", err)
-		os.Exit(1)
-	}
-
-	if len(createdFilePaths) == 0 {
-		color.Yellow("No files found in output directory")
-		os.Exit(0)
-	}
-
-	if err := sftpProcessor.Run(createdFilePaths, len(createdFilePaths)); err != nil {
-		color.Red("Error uploading files via SFTP: %v", err)
-		os.Exit(1)
-	}
+	fmt.Println("Processing SFTP files...")
+	sftpProcessor.Process()
 }
 
 // processScans handles the common processing logic for both student and professional scans

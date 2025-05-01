@@ -8,15 +8,19 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
+	"strconv"
 	"strings"
-	"time"
 
 	"github.com/cristalhq/base64"
 	"github.com/pkg/sftp"
-	"github.com/strivescan/strivescan-sftp/internal/models"
 	"golang.org/x/crypto/ssh"
+
+	"github.com/fatih/color"
+	"github.com/strivescan/strivescan-sftp/internal/models"
 )
+
+// Global variable to store error messages
+var ProcessingErrors []string
 
 // SFTPProcessor handles uploading files to SFTP servers
 type SFTPProcessor struct {
@@ -24,158 +28,197 @@ type SFTPProcessor struct {
 	db *sql.DB
 }
 
-// NewSFTPProcessor creates a new SFTP processor
 func NewSFTPProcessor(db *sql.DB) *SFTPProcessor {
-	return &SFTPProcessor{db: db}
+	return &SFTPProcessor{
+		db: db,
+	}
 }
 
-// Run processes files and uploads them to SFTP servers
-func (sp *SFTPProcessor) Run(files []string, totalFiles int) error {
-	if len(files) == 0 {
-		fmt.Println("No files to process")
-		return nil
-	}
-
-	fmt.Printf("Processing %d files for SFTP upload\n", totalFiles)
-
-	for i, file := range files {
-		// Calculate progress percentage
-		progress := float64(i+1) / float64(totalFiles) * 100
-
-		// Create progress bar string
-		const barWidth = 50
-		completed := int(float64(barWidth) * float64(i+1) / float64(totalFiles))
-		bar := make([]byte, barWidth)
-		for j := 0; j < barWidth; j++ {
-			if j < completed {
-				bar[j] = '='
-			} else {
-				bar[j] = ' '
-			}
-		}
-
-		fmt.Printf("\r[%s] %.1f%% (%d/%d) Processing: %s", string(bar), progress, i+1, totalFiles, filepath.Base(file))
-
-		// Extract team ID from the file path and add to array
-		// Expected format: output/team_123/filename.csv
-		teamIDs := make([]string, len(files))
-		for i, file := range files {
-			dirPath := filepath.Dir(file)
-			dirName := filepath.Base(dirPath)
-
-			var teamID string
-			if _, err := fmt.Sscanf(dirName, "%s", &teamID); err != nil {
-				return fmt.Errorf("failed to extract team ID from directory %s: %w", dirName, err)
-			}
-			teamIDs[i] = teamID
-		}
-
-		err := sp.prepareForUpload(teamIDs)
-		if err != nil {
-			return fmt.Errorf("failed to prepare for upload: %w", err)
-		}
-
-		// TODO: Implement SFTP upload logic
-		time.Sleep(100 * time.Millisecond) // Simulate work
-	}
-	return nil
-}
-
-func (sp *SFTPProcessor) prepareForUpload(teamIDs []string) error {
-	// Convert teamIDs slice to a comma-separated string for the IN clause
-	teamIDsStr := strings.Join(teamIDs, ",")
-
-	query := fmt.Sprintf(`
-		SELECT *
-		FROM sftp_credentials 
-		WHERE team_id IN (%s)`, teamIDsStr)
-
-	rows, err := sp.db.Query(query)
+func (s *SFTPProcessor) Process() error {
+	color.Magenta("Warming up SFTP processor...")
+	// Get SFTP credentials from database
+	rows, err := s.db.Query("SELECT * FROM sftp_credentials")
 	if err != nil {
-		return fmt.Errorf("failed to query sftp credentials: %w", err)
+		ProcessingErrors = append(ProcessingErrors, "Failed to query SFTP credentials: "+err.Error())
+		color.Red("Failed to query SFTP credentials: %v", err)
+		return err
 	}
 	defer rows.Close()
 
 	for rows.Next() {
-		var sftpCred models.SFTPCredentials
-		err := rows.Scan(
-			&sftpCred.ID,
-			&sftpCred.TeamID,
-			&sftpCred.Host,
-			&sftpCred.Port,
-			&sftpCred.Username,
-			&sftpCred.Password,
-			&sftpCred.SSHKey,
-			&sftpCred.SSHKeyFilename,
-			&sftpCred.Passphrase,
-			&sftpCred.UploadDirectory,
-			&sftpCred.NotificationEmail,
-			&sftpCred.CreatedAt,
-			&sftpCred.UpdatedAt,
+		var creds models.SFTPCredentials
+		err = rows.Scan(
+			&creds.ID,
+			&creds.TeamID,
+			&creds.Host,
+			&creds.Port,
+			&creds.Username,
+			&creds.Password,
+			&creds.SSHKey,
+			&creds.SSHKeyFilename,
+			&creds.Passphrase,
+			&creds.UploadDirectory,
+			&creds.NotificationEmail,
+			&creds.CreatedAt,
+			&creds.UpdatedAt,
 		)
-
 		if err != nil {
-			return fmt.Errorf("failed to scan sftp credentials: %w", err)
+			ProcessingErrors = append(ProcessingErrors, "Failed to scan SFTP credentials: "+err.Error())
+			color.Red("Failed to scan SFTP credentials: %v", err)
+			return err
 		}
 
-		// Log some info for debugging
-		fmt.Printf("Processing team ID: %d\n", sftpCred.TeamID)
-
-		// If password is encrypted, decrypt it
-		if sftpCred.Password.Valid {
-			fmt.Printf("Attempting to decrypt password for team %d\n", sftpCred.TeamID)
-			// For debugging, show a prefix of the encrypted password (first 20 chars max)
-			pwdPrefix := sftpCred.Password.String
-			if len(pwdPrefix) > 20 {
-				pwdPrefix = pwdPrefix[:20] + "..."
-			}
-			fmt.Printf("Encrypted password prefix: %s\n", pwdPrefix)
-
-			decryptedPassword, err := sp.decryptString(sftpCred.Password.String)
-			if err != nil {
-				return fmt.Errorf("failed to decrypt password for team %d: %w", sftpCred.TeamID, err)
-			}
-			sftpCred.Password = sql.NullString{
-				String: decryptedPassword,
-				Valid:  true,
-			}
-		}
-
-		// If passphrase is encrypted, decrypt it
-		if sftpCred.Passphrase.Valid {
-			fmt.Printf("Attempting to decrypt passphrase for team %d\n", sftpCred.TeamID)
-			decryptedPassphrase, err := sp.decryptString(sftpCred.Passphrase.String)
-			if err != nil {
-				return fmt.Errorf("failed to decrypt passphrase for team %d: %w", sftpCred.TeamID, err)
-			}
-			sftpCred.Passphrase = sql.NullString{
-				String: decryptedPassphrase,
-				Valid:  true,
-			}
-		}
-
-		// Get ready to send it over to the sendFiles function
-		fmt.Printf("Sending files to SFTP server for Team %d\n", sftpCred.TeamID)
-		err = sp.sendFiles(sftpCred)
+		fmt.Printf("Processing SFTP credentials for team %d on host %s\n", creds.TeamID, creds.Host)
+		err = s.processCredentials(creds)
 		if err != nil {
-			return fmt.Errorf("failed to send files to SFTP server for team %d: %w", sftpCred.TeamID, err)
+			ProcessingErrors = append(ProcessingErrors, "Failed to process credentials: "+err.Error())
+			color.Red("Failed to process credentials: %v", err)
+			return err
 		}
 	}
-
-	fmt.Println("Wrapping up")
 
 	return nil
 }
 
-// LaravelEncrypted represents Laravel's encryption payload structure
-type LaravelEncrypted struct {
-	IV    string `json:"iv"`
-	Value string `json:"value"`
-	Mac   string `json:"mac"`
-	Tag   string `json:"tag,omitempty"` // For AEAD ciphers
+func (s *SFTPProcessor) processCredentials(creds models.SFTPCredentials) error {
+	// We need to make sure to decode the password, passphrase, and ssh_key
+	// If the password is encoded, we need to decode it
+	// If the passphrase is encoded, we need to decode it
+	// If the ssh_key is encoded, we need to decode it
+
+	// Decode the password
+	if creds.Password.Valid {
+		fmt.Printf("Attempting to decrypt password for team %d\n", creds.TeamID)
+		// For debugging, show a prefix of the encrypted password (first 20 chars max)
+		pwdPrefix := creds.Password.String
+		if len(pwdPrefix) > 20 {
+			pwdPrefix = pwdPrefix[:20] + "..."
+		}
+		fmt.Printf("Encrypted password prefix: %s\n", pwdPrefix)
+
+		decryptedPassword, err := s.decryptString(creds.Password.String)
+		if err != nil {
+			color.Red("Failed to decrypt password for team %d: %v", creds.TeamID, err)
+			ProcessingErrors = append(ProcessingErrors, "Failed to decrypt password for team "+strconv.FormatInt(creds.TeamID, 10)+": "+err.Error())
+			return fmt.Errorf("failed to decrypt password for team %d: %w", creds.TeamID, err)
+		}
+
+		creds.Password = sql.NullString{
+			String: decryptedPassword,
+			Valid:  true,
+		}
+	}
+
+	if creds.SSHKey.Valid {
+		fmt.Printf("Attempting to decrypt SSH Key for team %d\n", creds.TeamID)
+		// For debugging, show a prefix of the encrypted password (first 20 chars max)
+		pwdPrefix := creds.SSHKey.String
+		if len(pwdPrefix) > 20 {
+			pwdPrefix = pwdPrefix[:20] + "..."
+		}
+		fmt.Printf("Encrypted password prefix: %s\n", pwdPrefix)
+
+		decryptedSSHKey, err := s.decryptString(creds.SSHKey.String)
+		if err != nil {
+			color.Red("Failed to decrypt SSH Key for team %d: %v", creds.TeamID, err)
+			ProcessingErrors = append(ProcessingErrors, "Failed to decrypt SSH Key for team "+strconv.FormatInt(creds.TeamID, 10)+": "+err.Error())
+			return fmt.Errorf("failed to decrypt password for team %d: %w", creds.TeamID, err)
+		}
+
+		creds.SSHKey = sql.NullString{
+			String: decryptedSSHKey,
+			Valid:  true,
+		}
+	}
+
+	if creds.Passphrase.Valid {
+		fmt.Printf("Attempting to decrypt Passphrase for team %d\n", creds.TeamID)
+		// For debugging, show a prefix of the encrypted password (first 20 chars max)
+		pwdPrefix := creds.Passphrase.String
+		if len(pwdPrefix) > 20 {
+			pwdPrefix = pwdPrefix[:20] + "..."
+		}
+		fmt.Printf("Encrypted password prefix: %s\n", pwdPrefix)
+
+		decryptedPassphrase, err := s.decryptString(creds.Passphrase.String)
+		if err != nil {
+			color.Red("Failed to decrypt passphrase for team %d: %v", creds.TeamID, err)
+			ProcessingErrors = append(ProcessingErrors, "Failed to decrypt passphrase for team "+strconv.FormatInt(creds.TeamID, 10)+": "+err.Error())
+			return fmt.Errorf("failed to decrypt password for team %d: %w", creds.TeamID, err)
+		}
+
+		creds.Passphrase = sql.NullString{
+			String: decryptedPassphrase,
+			Valid:  true,
+		}
+	}
+
+	s.ConnectToSFTP(creds)
+
+	return nil
 }
 
-// decryptString decrypts a string encrypted by Laravel's Crypt::encryptString
+func (s *SFTPProcessor) ConnectToSFTP(creds models.SFTPCredentials) (*sftp.Client, error) {
+	host := creds.Host
+	port := creds.Port
+	user := creds.Username
+	password := creds.Password.String
+	sshKey := creds.SSHKey.String
+	passphrase := creds.Passphrase.String
+
+	config := &ssh.ClientConfig{
+		User:            user,
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+	}
+
+	// Check if SSH key is provided
+	if sshKey != "" {
+		var signer ssh.Signer
+		var err error
+
+		if passphrase != "" {
+			signer, err = ssh.ParsePrivateKeyWithPassphrase([]byte(sshKey), []byte(passphrase))
+		} else {
+			signer, err = ssh.ParsePrivateKey([]byte(sshKey))
+		}
+
+		if err != nil {
+			color.Red("Failed to parse SSH key for team %d: %v", creds.TeamID, err)
+			ProcessingErrors = append(ProcessingErrors, "Failed to parse SSH key for team "+strconv.FormatInt(creds.TeamID, 10)+": "+err.Error())
+			return nil, fmt.Errorf("failed to parse SSH key: %w", err)
+		}
+
+		config.Auth = []ssh.AuthMethod{
+			ssh.PublicKeys(signer),
+		}
+	} else if password != "" {
+		// Fall back to password auth if no SSH key
+		config.Auth = []ssh.AuthMethod{
+			ssh.Password(password),
+		}
+	} else {
+		return nil, fmt.Errorf("no authentication method provided - need either password or SSH key")
+	}
+
+	addr := fmt.Sprintf("%s:%s", host, port)
+
+	client, err := ssh.Dial("tcp", addr, config)
+	if err != nil {
+		color.Red("Failed to dial: %v", err)
+		ProcessingErrors = append(ProcessingErrors, "Failed to dial: "+err.Error())
+		return nil, fmt.Errorf("failed to dial: %w", err)
+	}
+
+	sftpClient, err := sftp.NewClient(client)
+	if err != nil {
+		color.Red("Failed to create SFTP client: %v", err)
+		ProcessingErrors = append(ProcessingErrors, "Failed to create SFTP client: "+err.Error())
+		return nil, fmt.Errorf("failed to create SFTP client: %w", err)
+	}
+
+	return sftpClient, nil
+}
+
 func (sp *SFTPProcessor) decryptString(encrypted string) (string, error) {
 	// Get the Laravel encryption key from environment
 	appKey := os.Getenv("LARAVEL_ENCRYPTION_KEY")
@@ -271,144 +314,6 @@ func (sp *SFTPProcessor) decryptFromJSON(jsonData map[string]interface{}, appKey
 	}
 
 	return string(plaintext), nil
-}
-
-func (sp *SFTPProcessor) sendFiles(sftpCred models.SFTPCredentials) error {
-	fmt.Printf("Preparing to upload files for Team %d\n", sftpCred.TeamID)
-
-	host := sftpCred.Host
-	port := 22
-	username := "foo"
-	password := "pass"
-	uploadDirectory := "upload"
-
-	config := &ssh.ClientConfig{
-		User: username,
-		Auth: []ssh.AuthMethod{
-			ssh.Password(password),
-		},
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-	}
-
-	fmt.Printf("Connecting to SSH server at %s:%d\n", host, port)
-
-	// Connect to the SSH server
-	conn, err := ssh.Dial("tcp", fmt.Sprintf("%s:%d", host, port), config)
-	if err != nil {
-		fmt.Println("Failed to connect to SSH server:", err)
-		return err
-	}
-	defer conn.Close()
-
-	// Open SFTP session
-	sftpClient, err := sftp.NewClient(conn)
-	if err != nil {
-		fmt.Println("Failed to open SFTP session:", err)
-		return nil
-	}
-	defer sftpClient.Close()
-
-	fmt.Printf("Connected to SSH server\n")
-
-	// Create upload directory if it doesn't exist
-	err = sftpClient.MkdirAll(uploadDirectory)
-	if err != nil {
-		fmt.Printf("Failed to create upload directory: %v\n", err)
-		return err
-	}
-
-	teamDirectory := fmt.Sprintf("exports/team/%d", sftpCred.TeamID)
-	err = sftpClient.MkdirAll(filepath.Join(uploadDirectory, teamDirectory))
-	if err != nil {
-		fmt.Printf("Failed to create team directory: %v\n", err)
-		return err
-	}
-
-	uploadDirectory = filepath.Join(uploadDirectory, teamDirectory)
-
-	fmt.Printf("Uploading files to %s\n", uploadDirectory)
-
-	// Upload all files from the team's output directory
-	localTeamDir := fmt.Sprintf("output/%d", sftpCred.TeamID)
-	files, err := os.ReadDir(localTeamDir)
-	if err != nil {
-		fmt.Printf("Failed to read local team directory: %v\n", err)
-		return err
-	}
-
-	for _, file := range files {
-		if file.IsDir() {
-			continue
-		}
-
-		localPath := filepath.Join(localTeamDir, file.Name())
-		remotePath := filepath.Join(uploadDirectory, file.Name())
-
-		// Open local file
-		localFile, err := os.Open(localPath)
-		if err != nil {
-			fmt.Printf("Failed to open local file %s: %v\n", localPath, err)
-			return err
-		}
-		defer localFile.Close()
-
-		// Create remote file
-		remoteFile, err := sftpClient.Create(remotePath)
-		if err != nil {
-			fmt.Printf("Failed to create remote file %s: %v\n", remotePath, err)
-			return err
-		}
-		defer remoteFile.Close()
-
-		// Copy file contents
-		fmt.Printf("Uploading %s to %s\n", localPath, remotePath)
-		_, err = remoteFile.ReadFrom(localFile)
-		if err != nil {
-			fmt.Printf("Failed to upload file %s: %v\n", localPath, err)
-			return err
-		}
-		fmt.Printf("Successfully uploaded %s\n", file.Name())
-	}
-
-	return nil
-}
-
-// isBase64 checks if a string is valid base64
-func isBase64(s string) bool {
-	// Try standard base64 first
-	_, err := base64.StdEncoding.DecodeString(s)
-	return err == nil
-}
-
-func removeTag(s string) string {
-	fmt.Printf("removeTag input: %s\n", s)
-	// Remove the tag field if it exists
-	decoded, err := base64.StdEncoding.DecodeString(s)
-	if err != nil {
-		fmt.Printf("Base64 decode error: %v\n", err)
-		return s
-	}
-	fmt.Printf("Decoded length: %d\n", len(decoded))
-
-	var jsonData map[string]interface{}
-	if err := json.Unmarshal(decoded, &jsonData); err != nil {
-		fmt.Printf("JSON unmarshal error: %v\n", err)
-		return s
-	}
-
-	// Remove tag if it exists
-	delete(jsonData, "tag")
-
-	// Re-encode the JSON without the tag
-	prettyJSON, err := json.Marshal(jsonData)
-	if err != nil {
-		fmt.Printf("JSON marshal error: %v\n", err)
-		return s
-	}
-
-	result := base64.StdEncoding.EncodeToString(prettyJSON)
-	fmt.Printf("Final encoded result: %s\n", result)
-	return result
 }
 
 // min returns the minimum of two integers
