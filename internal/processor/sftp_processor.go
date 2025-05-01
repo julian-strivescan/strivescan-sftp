@@ -155,7 +155,11 @@ func (sp *SFTPProcessor) prepareForUpload(teamIDs []string) error {
 		}
 
 		// Get ready to send it over to the sendFiles function
-		sp.sendFiles(sftpCred)
+		fmt.Printf("Sending files to SFTP server for Team %d\n", sftpCred.TeamID)
+		err = sp.sendFiles(sftpCred)
+		if err != nil {
+			return fmt.Errorf("failed to send files to SFTP server for team %d: %w", sftpCred.TeamID, err)
+		}
 	}
 
 	fmt.Println("Wrapping up")
@@ -270,32 +274,49 @@ func (sp *SFTPProcessor) decryptFromJSON(jsonData map[string]interface{}, appKey
 }
 
 func (sp *SFTPProcessor) sendFiles(sftpCred models.SFTPCredentials) error {
-	fmt.Printf("Sending files to SFTP server for Team %d\n", sftpCred.TeamID)
-	// Create SFTP client config
+	fmt.Printf("Preparing to upload files for Team %d\n", sftpCred.TeamID)
+
+	host := sftpCred.Host
+	port := 22
+	username := "foo"
+	password := "pass"
+	uploadDirectory := "upload"
+
 	config := &ssh.ClientConfig{
-		User: sftpCred.Username,
+		User: username,
 		Auth: []ssh.AuthMethod{
-			ssh.Password(sftpCred.Password.String),
+			ssh.Password(password),
 		},
-		// For testing only - don't use in production
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 	}
 
-	// Connect to SSH server
-	conn, err := ssh.Dial("tcp", fmt.Sprintf("localhost:%s", sftpCred.Port), config)
+	fmt.Printf("Connecting to SSH server at %s:%d\n", host, port)
+
+	// Connect to the SSH server
+	conn, err := ssh.Dial("tcp", fmt.Sprintf("%s:%d", host, port), config)
 	if err != nil {
-		return fmt.Errorf("failed to connect to SSH server: %w", err)
+		fmt.Println("Failed to connect to SSH server:", err)
+		return err
 	}
 	defer conn.Close()
 
-	// Create new SFTP client
-	client, err := sftp.NewClient(conn)
+	// Open SFTP session
+	sftpClient, err := sftp.NewClient(conn)
 	if err != nil {
-		return fmt.Errorf("failed to create SFTP client: %w", err)
+		fmt.Println("Failed to open SFTP session:", err)
+		return nil
 	}
-	defer client.Close()
+	defer sftpClient.Close()
 
-	fmt.Printf("Successfully connected to SFTP server at localhost:%s\n", sftpCred.Port)
+	fmt.Printf("Connected to SSH server\n")
+
+	// Create upload directory if it doesn't exist
+	err = sftpClient.MkdirAll(uploadDirectory)
+	if err != nil {
+		fmt.Printf("Failed to create upload directory: %v\n", err)
+		return err
+	}
+
 	return nil
 }
 
