@@ -24,6 +24,7 @@ func NewStudentScanProcessor() *StudentScanProcessor {
 
 const studentScanQueryBase = `
 SELECT 
+	ufs.id as id,
     t.id AS team_id,
     t.name AS team_name,
 	ft.guid_id as internal_event_id,

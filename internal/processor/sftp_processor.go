@@ -28,16 +28,18 @@ var ProcessingErrors []string
 // SFTPProcessor handles uploading files to SFTP servers
 type SFTPProcessor struct {
 	BaseProcessor
-	db              *sql.DB
-	teamID          int
-	processedUFSIDs []int64 // Track which UFS records were processed
+	db               *sql.DB
+	teamID           int
+	processedUFSIDs  []int64 // Track which UFS records were processed
+	processedFairIDs []int64 // Track which fair records were processed
 }
 
-func NewSFTPProcessor(db *sql.DB, teamID int, processedUFSIDs []int64) *SFTPProcessor {
+func NewSFTPProcessor(db *sql.DB, teamID int, processedUFSIDs []int64, processedFairIDs []int64) *SFTPProcessor {
 	return &SFTPProcessor{
-		db:              db,
-		teamID:          teamID,
-		processedUFSIDs: processedUFSIDs,
+		db:               db,
+		teamID:           teamID,
+		processedUFSIDs:  processedUFSIDs,
+		processedFairIDs: processedFairIDs,
 	}
 }
 
@@ -63,6 +65,7 @@ func (s *SFTPProcessor) Process() error {
 
 	for rows.Next() {
 		var creds models.SFTPCredentials
+
 		err = rows.Scan(
 			&creds.ID,
 			&creds.TeamID,
@@ -78,6 +81,7 @@ func (s *SFTPProcessor) Process() error {
 			&creds.CreatedAt,
 			&creds.UpdatedAt,
 		)
+
 		if err != nil {
 			ProcessingErrors = append(ProcessingErrors, "Failed to scan SFTP credentials: "+err.Error())
 			color.Red("Failed to scan SFTP credentials: %v", err)
@@ -170,6 +174,7 @@ func (s *SFTPProcessor) processCredentials(creds models.SFTPCredentials) error {
 	}
 
 	client, err := s.ConnectToSFTP(creds)
+
 	if err != nil {
 		color.Red("Failed to connect to SFTP for team %d: %v", creds.TeamID, err)
 		ProcessingErrors = append(ProcessingErrors, "Failed to connect to SFTP for team "+strconv.FormatInt(creds.TeamID, 10)+": "+err.Error())
@@ -177,6 +182,7 @@ func (s *SFTPProcessor) processCredentials(creds models.SFTPCredentials) error {
 	}
 
 	err = s.uploadFiles(client, creds)
+
 	if err != nil {
 		color.Red("Failed to upload files for team %d: %v", creds.TeamID, err)
 		ProcessingErrors = append(ProcessingErrors, "Failed to upload files for team "+strconv.FormatInt(creds.TeamID, 10)+": "+err.Error())
@@ -240,17 +246,16 @@ func (s *SFTPProcessor) uploadFiles(client *sftp.Client, creds models.SFTPCreden
 			for _, errMsg := range ProcessingErrors {
 				color.Yellow("- %s", errMsg)
 			}
-			id, err := s.uploadFailure(creds)
+			_, err := s.uploadFailure(creds)
 			if err != nil {
 				return fmt.Errorf("failed to record upload failure: %w", err)
 			}
-			return s.updateUserFairStudents(creds.TeamID, id)
+
 		} else {
-			id, err := s.uploadSuccess(creds)
+			_, err := s.uploadSuccess(creds)
 			if err != nil {
 				return fmt.Errorf("failed to record upload success: %w", err)
 			}
-			return s.updateUserFairStudents(creds.TeamID, id)
 		}
 	}
 
@@ -464,6 +469,15 @@ func (sp *SFTPProcessor) uploadSuccess(creds models.SFTPCredentials) (string, er
 		return "", fmt.Errorf("failed to get last insert ID: %w", err)
 	}
 
+	// Update processed UFS and Fair IDs together since they correspond to the same records
+	for i := 0; i < len(sp.processedUFSIDs); i++ {
+		studentID := sp.processedUFSIDs[i]
+		fairID := sp.processedFairIDs[i]
+
+		// Update UFS record
+		sp.updateUserFairStudents(studentID, fairID, id, creds.TeamID)
+	}
+
 	return strconv.FormatInt(id, 10), nil
 }
 
@@ -515,30 +529,20 @@ func (sp *SFTPProcessor) uploadFailure(creds models.SFTPCredentials) (string, er
 	return strconv.FormatInt(id, 10), nil
 }
 
-func (s *SFTPProcessor) updateUserFairStudents(teamID int64, sftpUpdateID string) error {
-	fmt.Println("Updating user_fair_students for team", teamID, "with sftpUpdateID", sftpUpdateID)
-	if len(s.processedUFSIDs) == 0 {
-		return nil // No records to update
-	}
+func (s *SFTPProcessor) updateUserFairStudents(studentID int64, fairID int64, sftpUpdateID int64, teamID int64) error {
+	// updateQuery := fmt.Sprintf(`
+	// 	UPDATE user_fair_students
+	// 	SET sftp_update_id = %d
+	// 	WHERE student_id = %d AND fair_id = %d AND current_team_id = %d`,
+	// 	sftpUpdateID, studentID, fairID, teamID)
 
-	// Convert IDs to a comma-separated string for the IN clause
-	idsStr := make([]string, len(s.processedUFSIDs))
-	for i, id := range s.processedUFSIDs {
-		idsStr[i] = strconv.FormatInt(id, 10)
-	}
-	idsList := strings.Join(idsStr, ",")
+	// _, err := s.db.Exec(updateQuery)
 
-	updateQuery := fmt.Sprintf(`
-		UPDATE user_fair_students 
-		SET sftp_update_id = ? 
-		WHERE id IN (%s)`, idsList)
-
-	_, err := s.db.Exec(updateQuery, sftpUpdateID)
-	if err != nil {
-		color.Red("Failed to update user_fair_students: %v", err)
-		ProcessingErrors = append(ProcessingErrors, "Failed to update user_fair_students: "+err.Error())
-		return fmt.Errorf("failed to update user_fair_students: %w", err)
-	}
+	// if err != nil {
+	// 	color.Red("Failed to update user_fair_students: %v", err)
+	// 	ProcessingErrors = append(ProcessingErrors, "Failed to update user_fair_students: "+err.Error())
+	// 	return fmt.Errorf("failed to update user_fair_students: %w", err)
+	// }
 	return nil
 }
 

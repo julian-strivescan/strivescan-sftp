@@ -11,6 +11,7 @@ import (
 	"github.com/fatih/color"
 	"github.com/joho/godotenv"                                // Added godotenv
 	"github.com/strivescan/strivescan-sftp/internal/database" // Added database import
+	"github.com/strivescan/strivescan-sftp/internal/models"
 	proc "github.com/strivescan/strivescan-sftp/internal/processor"
 )
 
@@ -69,6 +70,8 @@ func main() {
 	// --- Determine Action based on Type ---
 	fmt.Printf("\nProcessing data type: %s\n", *dataType)
 
+	var student_data interface{}
+
 	if *dataType == "scans" {
 		config := proc.Config{
 			Days:   *days,
@@ -80,7 +83,7 @@ func main() {
 		// Process scans based on scan type
 		switch *scanType {
 		case "student":
-			processScans(proc.NewStudentScanProcessor(), config, db)
+			student_data = processScans(proc.NewStudentScanProcessor(), config, db)
 		case "professional":
 			processScans(proc.NewProfessionalScanProcessor(), config, db)
 		case "cis":
@@ -96,8 +99,8 @@ func main() {
 		case "ontario-counsellor":
 			processScans(proc.NewOntarioCounsellorScanProcessor(), config, db)
 		case "all":
-			// fmt.Println("\nProcessing student scans...")
-			// processScans(proc.NewStudentScanProcessor(), config, db)
+			fmt.Println("\nProcessing student scans...")
+			student_data = processScans(proc.NewStudentScanProcessor(), config, db)
 			// fmt.Println("\nProcessing CIS scans...")
 			// processScans(proc.NewCISScanProcessor(), config, db)
 			// processScans(proc.NewLindenScanProcessor(), config, db)
@@ -128,7 +131,21 @@ func main() {
 	color.Green("\nCSV Creation Complete.")
 
 	// Process files with SFTP processor
-	sftpProcessor := proc.NewSFTPProcessor(db, *teamID, []int64{})
+	// Extract student IDs from raw data
+	studentData, ok := student_data.([]models.StudentScanData)
+	if !ok {
+		color.Red("Error: Could not convert raw data to StudentScanData")
+		os.Exit(1)
+	}
+
+	studentIDs := make([]int64, 0, len(studentData))
+	fairIDs := make([]int64, 0, len(studentData))
+	for _, scan := range studentData {
+		studentIDs = append(studentIDs, scan.StudentID)
+		fairIDs = append(fairIDs, scan.FairID)
+	}
+
+	sftpProcessor := proc.NewSFTPProcessor(db, *teamID, studentIDs, fairIDs)
 	fmt.Println("Processing SFTP files...")
 	err = sftpProcessor.Process()
 	if err != nil {
@@ -138,7 +155,7 @@ func main() {
 }
 
 // processScans handles the common processing logic for both student and professional scans
-func processScans(processor proc.DataProcessor, config proc.Config, db *sql.DB) {
+func processScans(processor proc.DataProcessor, config proc.Config, db *sql.DB) interface{} {
 	// Fetch data
 	rawData, err := processor.FetchData(db, config)
 	if err != nil {
@@ -168,4 +185,6 @@ func processScans(processor proc.DataProcessor, config proc.Config, db *sql.DB) 
 	} else {
 		color.Yellow("No data found for the specified criteria, no CSV files generated.")
 	}
+
+	return rawData
 }
