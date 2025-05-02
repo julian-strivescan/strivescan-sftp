@@ -128,7 +128,7 @@ func main() {
 	color.Green("\nCSV Creation Complete.")
 
 	// Process files with SFTP processor
-	sftpProcessor := proc.NewSFTPProcessor(db)
+	sftpProcessor := proc.NewSFTPProcessor(db, *teamID)
 	fmt.Println("Processing SFTP files...")
 	sftpProcessor.Process()
 }

@@ -25,19 +25,30 @@ var ProcessingErrors []string
 // SFTPProcessor handles uploading files to SFTP servers
 type SFTPProcessor struct {
 	BaseProcessor
-	db *sql.DB
+	db     *sql.DB
+	teamID int
 }
 
-func NewSFTPProcessor(db *sql.DB) *SFTPProcessor {
+func NewSFTPProcessor(db *sql.DB, teamID int) *SFTPProcessor {
 	return &SFTPProcessor{
-		db: db,
+		db:     db,
+		teamID: teamID,
 	}
 }
 
 func (s *SFTPProcessor) Process() error {
 	color.Magenta("Warming up SFTP processor...")
 	// Get SFTP credentials from database
-	rows, err := s.db.Query("SELECT * FROM sftp_credentials")
+	var query string
+	var rows *sql.Rows
+	var err error
+	if s.teamID != 0 {
+		query = "SELECT * FROM sftp_credentials WHERE team_id = ?"
+		rows, err = s.db.Query(query, s.teamID)
+	} else {
+		query = "SELECT * FROM sftp_credentials"
+		rows, err = s.db.Query(query)
+	}
 	if err != nil {
 		ProcessingErrors = append(ProcessingErrors, "Failed to query SFTP credentials: "+err.Error())
 		color.Red("Failed to query SFTP credentials: %v", err)
@@ -161,10 +172,10 @@ func (s *SFTPProcessor) processCredentials(creds models.SFTPCredentials) error {
 func (s *SFTPProcessor) ConnectToSFTP(creds models.SFTPCredentials) (*sftp.Client, error) {
 	host := creds.Host
 	port := creds.Port
-	user := creds.Username
-	password := creds.Password.String
-	sshKey := creds.SSHKey.String
-	passphrase := creds.Passphrase.String
+	user := "foo"
+	password := "pass"
+	sshKey := ""
+	passphrase := ""
 
 	config := &ssh.ClientConfig{
 		User:            user,
@@ -197,6 +208,8 @@ func (s *SFTPProcessor) ConnectToSFTP(creds models.SFTPCredentials) (*sftp.Clien
 			ssh.Password(password),
 		}
 	} else {
+		color.Red("No authentication method provided - need either password or SSH key")
+		ProcessingErrors = append(ProcessingErrors, "No authentication method provided - need either password or SSH key")
 		return nil, fmt.Errorf("no authentication method provided - need either password or SSH key")
 	}
 
@@ -215,6 +228,9 @@ func (s *SFTPProcessor) ConnectToSFTP(creds models.SFTPCredentials) (*sftp.Clien
 		ProcessingErrors = append(ProcessingErrors, "Failed to create SFTP client: "+err.Error())
 		return nil, fmt.Errorf("failed to create SFTP client: %w", err)
 	}
+
+	fmt.Println("SFTP client created successfully")
+	fmt.Println("SFTP client: ", sftpClient)
 
 	return sftpClient, nil
 }
