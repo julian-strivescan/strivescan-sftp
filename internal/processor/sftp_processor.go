@@ -184,6 +184,7 @@ func (s *SFTPProcessor) processCredentials(creds models.SFTPCredentials) error {
 }
 
 func (s *SFTPProcessor) uploadFiles(client *sftp.Client, creds models.SFTPCredentials) error {
+	defer client.Close()
 	// Read the output directory for the team
 	files, err := os.ReadDir("output/" + strconv.FormatInt(creds.TeamID, 10))
 	if err != nil {
@@ -298,16 +299,12 @@ func (s *SFTPProcessor) ConnectToSFTP(creds models.SFTPCredentials) (*sftp.Clien
 		return nil, fmt.Errorf("failed to dial: %w", err)
 	}
 
-	defer client.Close()
-
 	sftpClient, err := sftp.NewClient(client)
 	if err != nil {
 		color.Red("Failed to create SFTP client: %v", err)
 		ProcessingErrors = append(ProcessingErrors, "Failed to create SFTP client: "+err.Error())
 		return nil, fmt.Errorf("failed to create SFTP client: %w", err)
 	}
-
-	defer sftpClient.Close()
 
 	fmt.Println("SFTP client created successfully")
 
