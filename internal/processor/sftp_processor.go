@@ -164,7 +164,14 @@ func (s *SFTPProcessor) processCredentials(creds models.SFTPCredentials) error {
 		}
 	}
 
-	s.ConnectToSFTP(creds)
+	client, err := s.ConnectToSFTP(creds)
+	if err != nil {
+		color.Red("Failed to connect to SFTP for team %d: %v", creds.TeamID, err)
+		ProcessingErrors = append(ProcessingErrors, "Failed to connect to SFTP for team "+strconv.FormatInt(creds.TeamID, 10)+": "+err.Error())
+		return fmt.Errorf("failed to connect to SFTP for team %d: %w", creds.TeamID, err)
+	}
+
+	defer client.Close()
 
 	return nil
 }
@@ -230,7 +237,6 @@ func (s *SFTPProcessor) ConnectToSFTP(creds models.SFTPCredentials) (*sftp.Clien
 	}
 
 	fmt.Println("SFTP client created successfully")
-	fmt.Println("SFTP client: ", sftpClient)
 
 	return sftpClient, nil
 }
