@@ -7,7 +7,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -171,7 +173,74 @@ func (s *SFTPProcessor) processCredentials(creds models.SFTPCredentials) error {
 		return fmt.Errorf("failed to connect to SFTP for team %d: %w", creds.TeamID, err)
 	}
 
-	defer client.Close()
+	err = s.uploadFiles(client, creds)
+	if err != nil {
+		color.Red("Failed to upload files for team %d: %v", creds.TeamID, err)
+		ProcessingErrors = append(ProcessingErrors, "Failed to upload files for team "+strconv.FormatInt(creds.TeamID, 10)+": "+err.Error())
+		return fmt.Errorf("failed to upload files for team %d: %w", creds.TeamID, err)
+	}
+
+	return nil
+}
+
+func (s *SFTPProcessor) uploadFiles(client *sftp.Client, creds models.SFTPCredentials) error {
+	// Read the output directory for the team
+	files, err := os.ReadDir("output/" + strconv.FormatInt(creds.TeamID, 10))
+	if err != nil {
+		return fmt.Errorf("failed to read output directory for team %d: %w", creds.TeamID, err)
+	}
+
+	// Upload each file to SFTP server
+	for _, file := range files {
+		if file.IsDir() {
+			continue // Skip directories
+		}
+
+		// Open local file
+		localPath := filepath.Join("output", strconv.FormatInt(creds.TeamID, 10), file.Name())
+		localFile, err := os.Open(localPath)
+		if err != nil {
+			return fmt.Errorf("failed to open local file %s: %w", localPath, err)
+		}
+
+		creds.UploadDirectory = sql.NullString{
+			String: "upload",
+			Valid:  true,
+		}
+
+		// Create remote file
+		remotePath := creds.UploadDirectory.String + "/" + file.Name() // Using root path since RemotePath is not defined in credentials
+		remoteFile, err := client.Create(remotePath)
+		if err != nil {
+			return fmt.Errorf("failed to create remote file %s: %w", remotePath, err)
+		}
+		defer remoteFile.Close()
+
+		// Copy file contents
+		written, err := io.Copy(remoteFile, localFile)
+		if err != nil {
+			return fmt.Errorf("failed to copy file %s to remote: %w", localPath, err)
+		}
+
+		// Verify upload by checking file size
+		remoteFileInfo, err := client.Stat(remotePath)
+		if err != nil {
+			return fmt.Errorf("failed to verify remote file %s: %w", remotePath, err)
+		}
+
+		localFileInfo, err := localFile.Stat()
+		if err != nil {
+			return fmt.Errorf("failed to get local file info %s: %w", localPath, err)
+		}
+
+		if remoteFileInfo.Size() != localFileInfo.Size() {
+			return fmt.Errorf("file size mismatch for %s: local %d bytes, remote %d bytes",
+				file.Name(), localFileInfo.Size(), remoteFileInfo.Size())
+		}
+
+		color.Green("Successfully uploaded and verified %s to %s (%d bytes)",
+			localPath, remotePath, written)
+	}
 
 	return nil
 }
@@ -229,12 +298,16 @@ func (s *SFTPProcessor) ConnectToSFTP(creds models.SFTPCredentials) (*sftp.Clien
 		return nil, fmt.Errorf("failed to dial: %w", err)
 	}
 
+	defer client.Close()
+
 	sftpClient, err := sftp.NewClient(client)
 	if err != nil {
 		color.Red("Failed to create SFTP client: %v", err)
 		ProcessingErrors = append(ProcessingErrors, "Failed to create SFTP client: "+err.Error())
 		return nil, fmt.Errorf("failed to create SFTP client: %w", err)
 	}
+
+	defer sftpClient.Close()
 
 	fmt.Println("SFTP client created successfully")
 
