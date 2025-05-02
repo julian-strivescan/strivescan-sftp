@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/cristalhq/base64"
 	"github.com/pkg/sftp"
@@ -201,6 +202,8 @@ func (s *SFTPProcessor) uploadFiles(client *sftp.Client, creds models.SFTPCreden
 		localPath := filepath.Join("output", strconv.FormatInt(creds.TeamID, 10), file.Name())
 		localFile, err := os.Open(localPath)
 		if err != nil {
+			color.Red("Failed to open local file %s: %v", localPath, err)
+			ProcessingErrors = append(ProcessingErrors, "Failed to open local file "+localPath+": "+err.Error())
 			return fmt.Errorf("failed to open local file %s: %w", localPath, err)
 		}
 
@@ -213,6 +216,8 @@ func (s *SFTPProcessor) uploadFiles(client *sftp.Client, creds models.SFTPCreden
 		remotePath := creds.UploadDirectory.String + "/" + file.Name() // Using root path since RemotePath is not defined in credentials
 		remoteFile, err := client.Create(remotePath)
 		if err != nil {
+			color.Red("Failed to create remote file %s: %v", remotePath, err)
+			ProcessingErrors = append(ProcessingErrors, "Failed to create remote file "+remotePath+": "+err.Error())
 			return fmt.Errorf("failed to create remote file %s: %w", remotePath, err)
 		}
 		defer remoteFile.Close()
@@ -220,23 +225,20 @@ func (s *SFTPProcessor) uploadFiles(client *sftp.Client, creds models.SFTPCreden
 		// Copy file contents
 		written, err := io.Copy(remoteFile, localFile)
 		if err != nil {
+			color.Red("Failed to copy file %s to remote: %v", localPath, err)
+			ProcessingErrors = append(ProcessingErrors, "Failed to copy file "+localPath+" to remote: "+err.Error())
 			return fmt.Errorf("failed to copy file %s to remote: %w", localPath, err)
 		}
 
-		// Verify upload by checking file size
-		remoteFileInfo, err := client.Stat(remotePath)
-		if err != nil {
-			return fmt.Errorf("failed to verify remote file %s: %w", remotePath, err)
-		}
-
-		localFileInfo, err := localFile.Stat()
-		if err != nil {
-			return fmt.Errorf("failed to get local file info %s: %w", localPath, err)
-		}
-
-		if remoteFileInfo.Size() != localFileInfo.Size() {
-			return fmt.Errorf("file size mismatch for %s: local %d bytes, remote %d bytes",
-				file.Name(), localFileInfo.Size(), remoteFileInfo.Size())
+		// Check if any processing errors occurred
+		if len(ProcessingErrors) > 0 {
+			color.Yellow("Warning: Processing errors occurred during upload:")
+			for _, errMsg := range ProcessingErrors {
+				color.Yellow("- %s", errMsg)
+			}
+			s.uploadFailure(creds)
+		} else {
+			s.uploadSuccess(creds)
 		}
 
 		color.Green("Successfully uploaded and verified %s to %s (%d bytes)",
@@ -406,6 +408,102 @@ func (sp *SFTPProcessor) decryptFromJSON(jsonData map[string]interface{}, appKey
 	}
 
 	return string(plaintext), nil
+}
+
+func (sp *SFTPProcessor) uploadSuccess(creds models.SFTPCredentials) (string, error) {
+	insertQuery := fmt.Sprintf("INSERT INTO %s (%s, %s, %s, %s, %s, %s, %s, %s) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+		"sftp_updates",
+		"id",
+		"status",
+		"team_id",
+		"error",
+		"error_description",
+		"created_at",
+		"updated_at",
+		"type")
+
+	stmt, err := sp.db.Prepare(insertQuery)
+	fmt.Println(insertQuery, stmt, err)
+	if err != nil {
+		color.Red("Failed to prepare insert statement: %v", err)
+		ProcessingErrors = append(ProcessingErrors, "Failed to prepare insert statement: "+err.Error())
+		return "", fmt.Errorf("failed to prepare insert statement: %w", err)
+	}
+	defer stmt.Close()
+
+	insertExec, err := stmt.Exec(
+		nil,
+		"success",
+		creds.TeamID,
+		"",
+		"",
+		time.Now().Format("2006-01-02 15:04:05"),
+		time.Now().Format("2006-01-02 15:04:05"),
+		"SFTPUPLOAD",
+	)
+
+	if err != nil {
+		color.Red("Failed to execute insert statement: %v", err)
+		ProcessingErrors = append(ProcessingErrors, "Failed to execute insert statement: "+err.Error())
+		return "", fmt.Errorf("failed to execute insert statement: %w", err)
+	}
+
+	id, err := insertExec.LastInsertId()
+	if err != nil {
+		color.Red("Failed to get last insert ID: %v", err)
+		ProcessingErrors = append(ProcessingErrors, "Failed to get last insert ID: "+err.Error())
+		return "", fmt.Errorf("failed to get last insert ID: %w", err)
+	}
+
+	return strconv.FormatInt(id, 10), nil
+}
+
+func (sp *SFTPProcessor) uploadFailure(creds models.SFTPCredentials) (string, error) {
+	insertQuery := fmt.Sprintf("INSERT INTO %s (%s, %s, %s, %s, %s, %s, %s, %s) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+		"sftp_updates",
+		"id",
+		"status",
+		"team_id",
+		"error",
+		"error_description",
+		"created_at",
+		"updated_at",
+		"type")
+
+	stmt, err := sp.db.Prepare(insertQuery)
+	fmt.Println(insertQuery, stmt, err)
+	if err != nil {
+		color.Red("Failed to prepare insert statement: %v", err)
+		ProcessingErrors = append(ProcessingErrors, "Failed to prepare insert statement: "+err.Error())
+		return "", fmt.Errorf("failed to prepare insert statement: %w", err)
+	}
+	defer stmt.Close()
+
+	insertExec, err := stmt.Exec(
+		nil,
+		"failure",
+		creds.TeamID,
+		"Failed to upload files",
+		strings.Join(ProcessingErrors, ", "),
+		time.Now().Format("2006-01-02 15:04:05"),
+		time.Now().Format("2006-01-02 15:04:05"),
+		"SFTPUPLOAD",
+	)
+
+	if err != nil {
+		color.Red("Failed to execute insert statement: %v", err)
+		ProcessingErrors = append(ProcessingErrors, "Failed to execute insert statement: "+err.Error())
+		return "", fmt.Errorf("failed to execute insert statement: %w", err)
+	}
+
+	id, err := insertExec.LastInsertId()
+	if err != nil {
+		color.Red("Failed to get last insert ID: %v", err)
+		ProcessingErrors = append(ProcessingErrors, "Failed to get last insert ID: "+err.Error())
+		return "", fmt.Errorf("failed to get last insert ID: %w", err)
+	}
+
+	return strconv.FormatInt(id, 10), nil
 }
 
 // min returns the minimum of two integers

@@ -130,7 +130,11 @@ func main() {
 	// Process files with SFTP processor
 	sftpProcessor := proc.NewSFTPProcessor(db, *teamID)
 	fmt.Println("Processing SFTP files...")
-	sftpProcessor.Process()
+	err = sftpProcessor.Process()
+	if err != nil {
+		color.Red("Error processing SFTP files: %v", err)
+		os.Exit(1)
+	}
 }
 
 // processScans handles the common processing logic for both student and professional scans
